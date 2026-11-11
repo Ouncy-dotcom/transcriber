@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Transcriber</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c2410c'/%3E%3Cpath d='M9 13v6M13 9v14M17 12v8M21 10v12M25 14v4' stroke='%23fff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#f6f4ef;--card:#fff;--ink:#1c1b19;--mute:#6d6a63;--line:#e2ded5;--acc:#c2410c;--acc2:#9a3412;--soft:#fbf1ea}
-@media (prefers-color-scheme:dark){:root{--bg:#161513;--card:#201f1c;--ink:#f0ede6;--mute:#a09c93;--line:#34322d;--acc:#f97316;--acc2:#fb923c;--soft:#2b221b}}
+:root{--bg:#f6f4ef;--card:#fff;--ink:#1c1b19;--mute:#6d6a63;--line:#e2ded5;--acc:#c2410c;--acc2:#9a3412;--soft:#fbf1ea;--l:36%}
+@media (prefers-color-scheme:dark){:root{--bg:#161513;--card:#201f1c;--ink:#f0ede6;--mute:#a09c93;--line:#34322d;--acc:#f97316;--acc2:#fb923c;--soft:#2b221b;--l:70%}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:860px;margin:0 auto;padding:28px 18px 60px}
+main{max-width:860px;margin:0 auto;padding:28px 18px 60px;position:relative}
 h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
 .sub{color:var(--mute);margin:0 0 20px;font-size:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
@@ -19,7 +20,8 @@ h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
 #drop span{color:var(--mute);font-size:13px}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:14px}
 label{font-size:12px;color:var(--mute);display:block;margin-bottom:4px}
-select{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:170px}
+select,input[type=text]{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+select{min-width:170px}
 button{font:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
 button:hover:not(:disabled){border-color:var(--acc)}
 button:disabled{opacity:.45;cursor:default}
@@ -35,23 +37,37 @@ audio{width:100%;margin-top:10px}
 #status.err{color:#dc2626}
 .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .tools .grow{font-size:13px;color:var(--mute)}
-#out{min-height:160px;max-height:60vh;overflow:auto;font-size:16px;line-height:1.65}
+#out{min-height:160px;max-height:62vh;overflow:auto;font-size:16px;line-height:1.65}
 #out:empty::before{content:"Your transcript will appear here.";color:var(--mute)}
-.seg{display:flex;gap:12px;padding:3px 6px;border-radius:6px}
-.seg:hover{background:var(--soft)}
-.seg.on{background:var(--soft)}
-.seg time{flex:none;width:58px;color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums;padding-top:5px;cursor:pointer}
+.turn{margin-bottom:10px}
+.who{display:inline-block;font-weight:700;font-size:14px;padding:1px 8px;margin:0 0 2px 0;border:0;border-radius:6px;background:transparent;color:hsl(var(--h) 70% var(--l));cursor:pointer}
+.who:hover{background:var(--soft)}
+.seg{display:flex;gap:8px;padding:3px 6px;border-radius:6px;align-items:flex-start}
+.seg:hover,.seg.on{background:var(--soft)}
+.seg time{flex:none;width:50px;color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums;padding-top:5px;cursor:pointer}
+.seg .dot{flex:none;width:12px;height:12px;padding:0;margin-top:8px;border-radius:50%;border:0;background:hsl(var(--h) 70% var(--l));opacity:.35}
+.seg:hover .dot,.seg .dot:focus{opacity:1}
 .seg p{margin:0;flex:1;outline:none}
-#out.plain .seg{display:inline;padding:0}
-#out.plain .seg time{display:none}
+#out.plain .seg{display:inline;padding:0;background:none}
+#out.plain .seg time,#out.plain .seg .dot{display:none}
 #out.plain .seg p{display:inline}
 #out.plain .seg p::after{content:" "}
+#out.plain .who{display:block;padding-left:0}
+#pop{position:absolute;z-index:5;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);width:260px;font-size:14px}
+#pop h4{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--mute)}
+#pop .r{display:flex;gap:6px;margin-bottom:10px}
+#pop input{flex:1;min-width:0;padding:6px 8px}
+#pop button{padding:6px 10px;font-size:14px}
+#pop .opts{display:flex;flex-wrap:wrap;gap:6px}
+#pop .opts button{color:hsl(var(--h) 70% var(--l));font-weight:600}
+#pop .opts button.new{color:var(--mute);font-weight:400}
+.hint{font-size:12px;color:var(--mute);margin:10px 0 0}
 </style>
 </head>
 <body>
 <main>
 <h1>Transcriber</h1>
-<p class="sub">Turns audio recordings into text. Everything runs in your browser, so recordings never leave this computer.</p>
+<p class="sub">Turns audio recordings into text and labels who is speaking. Everything runs in your browser, so recordings never leave this computer.</p>
 
 <div class="card">
   <div id="drop"><b>Drop an audio or video file here</b><span>or click to choose. MP3, WAV, M4A, OGG, WEBM, MP4 and more</span></div>
@@ -59,7 +75,7 @@ audio{width:100%;margin-top:10px}
   <div id="file"></div>
   <audio id="player" controls hidden></audio>
   <div class="row">
-        <div><label for="lang">Spoken language</label>
+    <div><label for="lang">Spoken language</label>
       <select id="lang">
         <option value="english">English</option>
         <option value="afrikaans">Afrikaans</option>
@@ -74,6 +90,18 @@ audio{width:100%;margin-top:10px}
         <option value="hindi">Hindi</option>
         <option value="chinese">Chinese</option>
         <option value="japanese">Japanese</option>
+      </select></div>
+    <div><label for="spk">Speakers</label>
+      <select id="spk">
+        <option value="auto">Detect automatically</option>
+        <option value="2">2 speakers</option>
+        <option value="3">3 speakers</option>
+        <option value="4">4 speakers</option>
+        <option value="5">5 speakers</option>
+        <option value="6">6 speakers</option>
+        <option value="7">7 speakers</option>
+        <option value="8">8 speakers</option>
+        <option value="off">Don't label speakers</option>
       </select></div>
     <div class="grow"></div>
     <button id="cancel" hidden>Stop</button>
@@ -92,19 +120,25 @@ audio{width:100%;margin-top:10px}
     <button id="srt" disabled>Save .srt</button>
   </div>
   <div id="out"></div>
+  <p class="hint" id="hint" hidden>Speaker labels are a best guess. Click a name to rename it, or the dot beside a line to change who said it. If you know how many people are talking, choosing that number above gives better results.</p>
 </div>
+<div id="pop" hidden></div>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
-const drop=$('drop'), pick=$('pick'), go=$('go'), cancel=$('cancel'), out=$('out'), statusEl=$('status'), bar=$('bar'), player=$('player');
-let file=null, worker=null, segs=[], busy=false, downloads=null, baseName='transcript';
+const drop=$('drop'), pick=$('pick'), go=$('go'), cancel=$('cancel'), out=$('out'), statusEl=$('status'), bar=$('bar'), player=$('player'), pop=$('pop');
+const HUES=[18,215,140,285,45,330,180,95,250,0];
+let file=null, worker=null, segs=[], names=[], labelsOn=false, busy=false, downloads=null, baseName='transcript', audioDur=0, lastTurn=null, lastSpk=null;
 
 function setStatus(t, err){ statusEl.textContent=t||''; statusEl.className=err?'err':''; }
-function setBar(f){ bar.style.display = f==null?'none':'block'; if(f!=null) bar.firstElementChild.style.width=Math.round(f*100)+'%'; }
+function setBar(f){ bar.style.display = f==null?'none':'block'; if(f!=null) bar.firstElementChild.style.width=Math.round(Math.min(1,f)*100)+'%'; }
 const fmt = s => { s=Math.max(0,s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=Math.floor(s%60); return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0'); };
 const fmtSrt = s => { const ms=Math.round(s*1000); const p=(n,l=2)=>String(n).padStart(l,'0'); return p(Math.floor(ms/3600000))+':'+p(Math.floor(ms%3600000/60000))+':'+p(Math.floor(ms%60000/1000))+','+p(ms%1000,3); };
 const dur = ms => { const s=Math.round(ms/1000); return s<60? s+' sec' : Math.floor(s/60)+' min '+(s%60)+' sec'; };
+const hue = k => HUES[k%HUES.length];
+const nameOf = k => names[k] || ('Speaker '+(k+1));
+const spkOf = s => labelsOn && s.speaker>=0 ? s.speaker : -1;
 
 function setFile(f){
   if(!f||busy) return;
@@ -133,53 +167,115 @@ async function decode(f){
   return r.getChannelData(0);
 }
 
-function addSeg(c){
-  const i=segs.push(c)-1;
+// ---------- transcript rendering ----------
+function appendSeg(i){
+  const s=segs[i], k=spkOf(s);
+  if(!lastTurn || lastSpk!==k){
+    lastTurn=document.createElement('div'); lastTurn.className='turn'; lastSpk=k;
+    if(k>=0){
+      const b=document.createElement('button'); b.className='who'; b.style.setProperty('--h',hue(k)); b.textContent=nameOf(k); b.title='Rename or change speaker';
+      const first=i; b.onclick=ev=>{ ev.stopPropagation(); const idx=[]; for(let j=first;j<segs.length&&spkOf(segs[j])===k;j++) idx.push(j); openPop(b,k,idx,true); };
+      lastTurn.append(b);
+    }
+    out.append(lastTurn);
+  }
   const d=document.createElement('div'); d.className='seg'; d.dataset.i=i;
-  const t=document.createElement('time'); t.textContent=fmt(c.start); t.title='Play from here';
-  t.onclick=()=>{ try{ player.currentTime=c.start; player.play(); }catch{} };
-  const p=document.createElement('p'); p.textContent=c.text; p.contentEditable='true'; p.spellcheck=true;
-  p.oninput=()=>{ segs[i].text=p.textContent.trim(); count(); };
-  d.append(t,p); out.append(d); out.scrollTop=out.scrollHeight; count();
+  const t=document.createElement('time'); t.textContent=fmt(s.start); t.title='Play from here';
+  t.onclick=()=>{ try{ player.currentTime=s.start; player.play(); }catch{} };
+  d.append(t);
+  if(k>=0){ const dot=document.createElement('button'); dot.className='dot'; dot.style.setProperty('--h',hue(k)); dot.title='Change who said this line'; dot.onclick=ev=>{ ev.stopPropagation(); openPop(dot,k,[i],false); }; d.append(dot); }
+  const p=document.createElement('p'); p.textContent=s.text; p.contentEditable='true'; p.spellcheck=true;
+  p.oninput=()=>{ s.text=p.textContent.trim(); count(); };
+  d.append(p); lastTurn.append(d);
 }
-function count(){ const w=segs.map(s=>s.text).join(' ').split(/\s+/).filter(Boolean).length; $('count').textContent=w? w.toLocaleString()+' words' : ''; }
-const plainText = () => segs.map(s=>s.text).filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
-const stampedText = () => segs.filter(s=>s.text).map(s=>'['+fmt(s.start)+'] '+s.text).join('\n');
-const srtText = () => segs.filter(s=>s.text).map((s,i)=>(i+1)+'\n'+fmtSrt(s.start)+' --> '+fmtSrt(Math.max(s.end,s.start+0.5))+'\n'+s.text+'\n').join('\n');
+function renderAll(){ const top=out.scrollTop; out.textContent=''; lastTurn=null; lastSpk=null; for(let i=0;i<segs.length;i++) appendSeg(i); out.scrollTop=top; count(); }
+function addSegs(list){
+  const stick=out.scrollTop+out.clientHeight>=out.scrollHeight-40;
+  for(const c of list){ while(c.speaker>=names.length) names.push('Speaker '+(names.length+1)); segs.push(c); appendSeg(segs.length-1); }
+  if(stick) out.scrollTop=out.scrollHeight; count();
+}
+function count(){ const w=segs.map(s=>s.text).join(' ').split(/\s+/).filter(Boolean).length; $('count').textContent=w? w.toLocaleString()+' words'+(labelsOn?' · '+new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size+' speakers':'') : ''; }
+
+// ---------- speaker popover ----------
+function closePop(){ pop.hidden=true; pop.textContent=''; }
+function openPop(anchor,k,idx,turn){
+  pop.textContent='';
+  const h=document.createElement('h4'); h.textContent=turn?'Rename this speaker everywhere':'Who said this line?'; pop.append(h);
+  if(turn){
+    const r=document.createElement('div'); r.className='r';
+    const inp=document.createElement('input'); inp.type='text'; inp.value=nameOf(k); inp.maxLength=40;
+    const ok=document.createElement('button'); ok.textContent='Rename';
+    const apply=()=>{ const v=inp.value.trim(); if(v){ names[k]=v; renderAll(); } closePop(); };
+    ok.onclick=apply; inp.onkeydown=e=>{ if(e.key==='Enter') apply(); if(e.key==='Escape') closePop(); };
+    r.append(inp,ok); pop.append(r);
+    const h2=document.createElement('h4'); h2.textContent=idx.length>1?'Or these '+idx.length+' lines were said by':'Or this line was said by'; pop.append(h2);
+    setTimeout(()=>{ inp.focus(); inp.select(); },0);
+  }
+  const o=document.createElement('div'); o.className='opts';
+  for(let c=0;c<names.length;c++){
+    if(c===k) continue;
+    const b=document.createElement('button'); b.textContent=nameOf(c); b.style.setProperty('--h',hue(c));
+    b.onclick=()=>{ for(const i of idx) segs[i].speaker=c; renderAll(); closePop(); };
+    o.append(b);
+  }
+  const nb=document.createElement('button'); nb.className='new'; nb.textContent='+ New speaker';
+  nb.onclick=()=>{ names.push('Speaker '+(names.length+1)); const c=names.length-1; for(const i of idx) segs[i].speaker=c; renderAll(); closePop(); };
+  o.append(nb); pop.append(o);
+  pop.hidden=false;
+  const m=document.querySelector('main').getBoundingClientRect(), a=anchor.getBoundingClientRect();
+  pop.style.left=Math.max(8,Math.min(a.left-m.left, m.width-270))+'px';
+  pop.style.top=(a.bottom-m.top+6)+'px';
+}
+document.addEventListener('click',e=>{ if(!pop.hidden && !pop.contains(e.target)) closePop(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closePop(); });
+
+// ---------- export ----------
+const clean = t => t.replace(/\s+/g,' ').trim();
+function turns(){ const r=[]; for(const s of segs){ if(!s.text) continue; const k=spkOf(s); const l=r[r.length-1]; if(l&&l.k===k) l.text+=' '+s.text; else r.push({k,text:s.text}); } return r; }
+const plainText = () => turns().map(t=>(t.k>=0?nameOf(t.k)+': ':'')+clean(t.text)).join('\n\n');
+const stampedText = () => segs.filter(s=>s.text).map(s=>'['+fmt(s.start)+'] '+(spkOf(s)>=0?nameOf(spkOf(s))+': ':'')+clean(s.text)).join('\n');
+const srtText = () => segs.filter(s=>s.text).map((s,i)=>(i+1)+'\n'+fmtSrt(s.start)+' --> '+fmtSrt(Math.max(s.end,s.start+0.5))+'\n'+(spkOf(s)>=0?nameOf(spkOf(s))+': ':'')+clean(s.text)+'\n').join('\n');
 function enableOut(on){ ['toggle','copy','txt','srt'].forEach(id=>$(id).disabled=!on); }
 
-player.ontimeupdate=()=>{ const t=player.currentTime; out.querySelectorAll('.seg').forEach(d=>{ const s=segs[d.dataset.i]; d.classList.toggle('on', s && t>=s.start && t<s.end); }); };
+player.ontimeupdate=()=>{ const t=player.currentTime; out.querySelectorAll('.seg').forEach(d=>{ const s=segs[d.dataset.i]; d.classList.toggle('on', !!s && t>=s.start && t<s.end); }); };
 
-function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; setBar(null); setStatus(msg,err); enableOut(segs.length>0); }
+// ---------- run ----------
+function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; setBar(null); setStatus(msg,err); enableOut(segs.length>0); $('hint').hidden=!(labelsOn&&segs.length); }
 
 go.onclick=async()=>{
   if(!file||busy) return;
-  busy=true; go.disabled=true; cancel.hidden=false; segs=[]; out.innerHTML=''; count(); enableOut(false);
+  busy=true; go.disabled=true; cancel.hidden=false; segs=[]; names=[]; labelsOn=false; closePop(); renderAll(); enableOut(false); $('hint').hidden=true;
   setStatus('Reading audio…'); setBar(0);
   let audio;
   try{ audio=await decode(file); }
   catch(e){ finish('This file could not be read as audio. Try MP3, WAV or M4A.',true); return; }
   if(!busy) return;
-  const total=audio.length/16000;
+  audioDur=audio.length/16000;
   if(!worker){
     worker=new Worker('./worker.js',{type:'module'});
-    worker.onerror=e=>finish('Something went wrong loading the transcription engine. '+(e.message||''),true);
+    worker.onerror=e=>{ if(worker){ worker.terminate(); worker=null; } finish('Something went wrong loading the transcription engine. '+(e.message||''),true); };
     worker.onmessage=onMsg;
   }
-  worker._total=total;
-  setStatus('Loading speech model (first run takes a minute)…');
-  worker.postMessage({type:'run',audio,model:'whisper-small',language:$('lang').value||null},[audio.buffer]);
+  setStatus('Loading (the first run downloads the models, which takes a minute)…');
+  worker.postMessage({type:'run',audio,model:'whisper-small',language:$('lang').value||null,speakers:$('spk').value==='auto'?'0':$('spk').value},[audio.buffer]);
 };
 cancel.onclick=()=>{ if(worker){ worker.terminate(); worker=null; } finish(segs.length?'Stopped. Partial transcript below.':'Stopped.'); };
 
 function onMsg(e){
   const m=e.data;
-  if(m.type==='load'){ const names={engine:'engine',encoder:'speech model, part 1 of 2',decoder:'speech model, part 2 of 2'}; setStatus('Loading '+names[m.label]+'…'); setBar(m.done/m.total); }
-  else if(m.type==='status'){ setStatus(m.text); if(m.text.startsWith('Transcribing')) setBar(0); }
-  else if(m.type==='segments'){ m.chunks.forEach(addSeg); }
-  else if(m.type==='progress'){ const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); worker._elapsed=m.elapsed; }
-  else if(m.type==='done'){ finish(segs.length?'Done in '+dur(worker._elapsed||0)+' ('+fmt(worker._total)+' of audio).':'No speech was found in this recording.'); }
-  else if(m.type==='error'){ finish('Error: '+m.text,true); }
+  if(m.type==='load'){ const n={engine:'engine',encoder:'speech model, part 1 of 2',decoder:'speech model, part 2 of 2',speakers:'speaker model'}; setStatus('Loading '+n[m.label]+'…'); setBar(m.done/m.total); }
+  else if(m.type==='status'){ setStatus(m.text); setBar(0); }
+  else if(m.type==='diar'){ setStatus('Working out who is speaking… step '+(m.phase==='listen'?1:2)+' of 2'); setBar(m.done/m.total); }
+  else if(m.type==='speakers'){ labelsOn=m.count>=2; names=[]; }
+  else if(m.type==='segments'){ addSegs(m.chunks); }
+  else if(m.type==='progress'){ const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); }
+  else if(m.type==='done'){
+    const sp=$('spk').value, heard=new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size;
+    if(labelsOn&&heard<2){ labelsOn=false; renderAll(); }
+    const who=sp==='off'||!segs.length?'':(labelsOn?' Found '+heard+' speakers.':' Only one speaker was found, so lines are not labelled.');
+    finish(segs.length?'Done in '+dur(m.elapsed)+' ('+fmt(audioDur)+' of audio).'+who:'No speech was found in this recording.');
+  }
+  else if(m.type==='error'){ if(worker){ worker.terminate(); worker=null; } finish('Error: '+m.text,true); }
 }
 
 $('toggle').onclick=()=>{ const p=out.classList.toggle('plain'); $('toggle').textContent=p?'Show timestamps':'Hide timestamps'; };

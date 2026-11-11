@@ -1,0 +1,16 @@
+{
+  "feature_extractor_type": "WeSpeakerFeatureExtractor",
+  "sampling_rate": 16000,
+  "dither": 0,
+  "fbank_centering_span": null,
+  "frame_length": 25,
+  "frame_shift": 10,
+  "min_num_frames": 9,
+  "num_channels": 1,
+  "num_mel_bins": 80,
+  "round_to_power_of_two": true,
+  "sample_rate": 16000,
+  "snip_edges": true,
+  "use_energy": false,
+  "window_type": "hamming"
+}

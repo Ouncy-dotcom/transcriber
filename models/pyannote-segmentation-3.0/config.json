@@ -1,0 +1,21 @@
+{
+  "model_type": "pyannote",
+  "id2label": {
+    "0": "NO_SPEAKER",
+    "1": "SPEAKER_1",
+    "2": "SPEAKER_2",
+    "3": "SPEAKER_3",
+    "4": "SPEAKERS_1_AND_2",
+    "5": "SPEAKERS_1_AND_3",
+    "6": "SPEAKERS_2_AND_3"
+  },
+  "label2id": {
+    "NO_SPEAKER": 0,
+    "SPEAKER_1": 1,
+    "SPEAKER_2": 2,
+    "SPEAKER_3": 3,
+    "SPEAKERS_1_AND_2": 4,
+    "SPEAKERS_1_AND_3": 5,
+    "SPEAKERS_2_AND_3": 6
+  }
+}

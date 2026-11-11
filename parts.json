@@ -1,4 +1,10 @@
 {
+ "models/pyannote-segmentation-3.0/onnx/model.onnx": [
+  "models/pyannote-segmentation-3.0/onnx/model.onnx.part00.wasm"
+ ],
+ "models/wespeaker-voxceleb-resnet34-LM/onnx/model_quantized.onnx": [
+  "models/wespeaker-voxceleb-resnet34-LM/onnx/model_quantized.onnx.part00.wasm"
+ ],
  "models/whisper-small/onnx/decoder_model_merged_quantized.onnx": [
   "models/whisper-small/onnx/decoder_model_merged_quantized.onnx.part00.wasm",
   "models/whisper-small/onnx/decoder_model_merged_quantized.onnx.part01.wasm",
@@ -12,12 +18,14 @@
   "models/whisper-small/onnx/decoder_model_merged_quantized.onnx.part09.wasm",
   "models/whisper-small/onnx/decoder_model_merged_quantized.onnx.part10.wasm"
  ],
- "models/whisper-small/onnx/encoder_model_q4.onnx": [
-  "models/whisper-small/onnx/encoder_model_q4.onnx.part00.wasm",
-  "models/whisper-small/onnx/encoder_model_q4.onnx.part01.wasm",
-  "models/whisper-small/onnx/encoder_model_q4.onnx.part02.wasm",
-  "models/whisper-small/onnx/encoder_model_q4.onnx.part03.wasm",
-  "models/whisper-small/onnx/encoder_model_q4.onnx.part04.wasm"
+ "models/whisper-small/onnx/encoder_model_quantized.onnx": [
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part00.wasm",
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part01.wasm",
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part02.wasm",
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part03.wasm",
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part04.wasm",
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part05.wasm",
+  "models/whisper-small/onnx/encoder_model_quantized.onnx.part06.wasm"
  ],
  "ort/ort.wasm": [
   "ort/ort.wasm.part00.wasm",
