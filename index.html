@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transcriber</title>
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--ink:#1c1b19;--mute:#6d6a63;--line:#e2ded5;--acc:#c2410c;--acc2:#9a3412;--soft:#fbf1ea}
+@media (prefers-color-scheme:dark){:root{--bg:#161513;--card:#201f1c;--ink:#f0ede6;--mute:#a09c93;--line:#34322d;--acc:#f97316;--acc2:#fb923c;--soft:#2b221b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 18px 60px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+.sub{color:var(--mute);margin:0 0 20px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+#drop{border:2px dashed var(--line);border-radius:12px;padding:30px 16px;text-align:center;cursor:pointer;transition:.15s}
+#drop.over,#drop:hover{border-color:var(--acc);background:var(--soft)}
+#drop b{display:block;font-size:17px}
+#drop span{color:var(--mute);font-size:13px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:14px}
+label{font-size:12px;color:var(--mute);display:block;margin-bottom:4px}
+select{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:170px}
+button{font:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){border-color:var(--acc)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+button.primary:hover:not(:disabled){background:var(--acc2)}
+.grow{flex:1}
+#file{font-size:14px;margin-top:12px;color:var(--mute)}
+#file b{color:var(--ink)}
+audio{width:100%;margin-top:10px}
+#bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:12px;display:none}
+#bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+#status{font-size:13px;color:var(--mute);margin-top:8px;min-height:20px}
+#status.err{color:#dc2626}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.tools .grow{font-size:13px;color:var(--mute)}
+#out{min-height:160px;max-height:60vh;overflow:auto;font-size:16px;line-height:1.65}
+#out:empty::before{content:"Your transcript will appear here.";color:var(--mute)}
+.seg{display:flex;gap:12px;padding:3px 6px;border-radius:6px}
+.seg:hover{background:var(--soft)}
+.seg.on{background:var(--soft)}
+.seg time{flex:none;width:58px;color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums;padding-top:5px;cursor:pointer}
+.seg p{margin:0;flex:1;outline:none}
+#out.plain .seg{display:inline;padding:0}
+#out.plain .seg time{display:none}
+#out.plain .seg p{display:inline}
+#out.plain .seg p::after{content:" "}
+</style>
+</head>
+<body>
+<main>
+<h1>Transcriber</h1>
+<p class="sub">Turns audio recordings into text. Everything runs in your browser, so recordings never leave this computer.</p>
+
+<div class="card">
+  <div id="drop"><b>Drop an audio or video file here</b><span>or click to choose. MP3, WAV, M4A, OGG, WEBM, MP4 and more</span></div>
+  <input type="file" id="pick" accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,.webm,.mp4,.amr,.wma" hidden>
+  <div id="file"></div>
+  <audio id="player" controls hidden></audio>
+  <div class="row">
+        <div><label for="lang">Spoken language</label>
+      <select id="lang">
+        <option value="english">English</option>
+        <option value="afrikaans">Afrikaans</option>
+        <option value="dutch">Dutch</option>
+        <option value="french">French</option>
+        <option value="german">German</option>
+        <option value="portuguese">Portuguese</option>
+        <option value="spanish">Spanish</option>
+        <option value="italian">Italian</option>
+        <option value="swahili">Swahili</option>
+        <option value="arabic">Arabic</option>
+        <option value="hindi">Hindi</option>
+        <option value="chinese">Chinese</option>
+        <option value="japanese">Japanese</option>
+      </select></div>
+    <div class="grow"></div>
+    <button id="cancel" hidden>Stop</button>
+    <button id="go" class="primary" disabled>Transcribe</button>
+  </div>
+  <div id="bar"><i></i></div>
+  <div id="status"></div>
+</div>
+
+<div class="card">
+  <div class="tools">
+    <div class="grow" id="count"></div>
+    <button id="toggle" disabled>Hide timestamps</button>
+    <button id="copy" disabled>Copy</button>
+    <button id="txt" disabled>Save .txt</button>
+    <button id="srt" disabled>Save .srt</button>
+  </div>
+  <div id="out"></div>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const drop=$('drop'), pick=$('pick'), go=$('go'), cancel=$('cancel'), out=$('out'), statusEl=$('status'), bar=$('bar'), player=$('player');
+let file=null, worker=null, segs=[], busy=false, downloads=null, baseName='transcript';
+
+function setStatus(t, err){ statusEl.textContent=t||''; statusEl.className=err?'err':''; }
+function setBar(f){ bar.style.display = f==null?'none':'block'; if(f!=null) bar.firstElementChild.style.width=Math.round(f*100)+'%'; }
+const fmt = s => { s=Math.max(0,s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=Math.floor(s%60); return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0'); };
+const fmtSrt = s => { const ms=Math.round(s*1000); const p=(n,l=2)=>String(n).padStart(l,'0'); return p(Math.floor(ms/3600000))+':'+p(Math.floor(ms%3600000/60000))+':'+p(Math.floor(ms%60000/1000))+','+p(ms%1000,3); };
+const dur = ms => { const s=Math.round(ms/1000); return s<60? s+' sec' : Math.floor(s/60)+' min '+(s%60)+' sec'; };
+
+function setFile(f){
+  if(!f||busy) return;
+  file=f; baseName=f.name.replace(/\.[^.]+$/,'')||'transcript';
+  $('file').innerHTML='<b></b> · '+(f.size/1048576).toFixed(1)+' MB'; $('file').firstChild.textContent=f.name;
+  try{ if(player.src) URL.revokeObjectURL(player.src); player.src=URL.createObjectURL(f); player.hidden=false; }catch{}
+  go.disabled=false; setStatus('');
+}
+drop.onclick=()=>pick.click();
+pick.onchange=()=>setFile(pick.files[0]);
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',ev=>setFile(ev.dataTransfer.files[0]));
+window.addEventListener('dragover',e=>e.preventDefault()); window.addEventListener('drop',e=>e.preventDefault());
+
+async function decode(f){
+  const buf=await f.arrayBuffer();
+  const AC=window.AudioContext||window.webkitAudioContext;
+  const ctx=new AC();
+  let decoded;
+  try{ decoded=await ctx.decodeAudioData(buf); } finally { try{ctx.close();}catch{} }
+  const sr=16000, len=Math.ceil(decoded.duration*sr);
+  const off=new OfflineAudioContext(1,len,sr);
+  const src=off.createBufferSource(); src.buffer=decoded; src.connect(off.destination); src.start();
+  const r=await off.startRendering();
+  return r.getChannelData(0);
+}
+
+function addSeg(c){
+  const i=segs.push(c)-1;
+  const d=document.createElement('div'); d.className='seg'; d.dataset.i=i;
+  const t=document.createElement('time'); t.textContent=fmt(c.start); t.title='Play from here';
+  t.onclick=()=>{ try{ player.currentTime=c.start; player.play(); }catch{} };
+  const p=document.createElement('p'); p.textContent=c.text; p.contentEditable='true'; p.spellcheck=true;
+  p.oninput=()=>{ segs[i].text=p.textContent.trim(); count(); };
+  d.append(t,p); out.append(d); out.scrollTop=out.scrollHeight; count();
+}
+function count(){ const w=segs.map(s=>s.text).join(' ').split(/\s+/).filter(Boolean).length; $('count').textContent=w? w.toLocaleString()+' words' : ''; }
+const plainText = () => segs.map(s=>s.text).filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+const stampedText = () => segs.filter(s=>s.text).map(s=>'['+fmt(s.start)+'] '+s.text).join('\n');
+const srtText = () => segs.filter(s=>s.text).map((s,i)=>(i+1)+'\n'+fmtSrt(s.start)+' --> '+fmtSrt(Math.max(s.end,s.start+0.5))+'\n'+s.text+'\n').join('\n');
+function enableOut(on){ ['toggle','copy','txt','srt'].forEach(id=>$(id).disabled=!on); }
+
+player.ontimeupdate=()=>{ const t=player.currentTime; out.querySelectorAll('.seg').forEach(d=>{ const s=segs[d.dataset.i]; d.classList.toggle('on', s && t>=s.start && t<s.end); }); };
+
+function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; setBar(null); setStatus(msg,err); enableOut(segs.length>0); }
+
+go.onclick=async()=>{
+  if(!file||busy) return;
+  busy=true; go.disabled=true; cancel.hidden=false; segs=[]; out.innerHTML=''; count(); enableOut(false);
+  setStatus('Reading audio…'); setBar(0);
+  let audio;
+  try{ audio=await decode(file); }
+  catch(e){ finish('This file could not be read as audio. Try MP3, WAV or M4A.',true); return; }
+  if(!busy) return;
+  const total=audio.length/16000;
+  if(!worker){
+    worker=new Worker('./worker.js',{type:'module'});
+    worker.onerror=e=>finish('Something went wrong loading the transcription engine. '+(e.message||''),true);
+    worker.onmessage=onMsg;
+  }
+  worker._total=total;
+  setStatus('Loading speech model (first run takes a minute)…');
+  worker.postMessage({type:'run',audio,model:'whisper-small',language:$('lang').value||null},[audio.buffer]);
+};
+cancel.onclick=()=>{ if(worker){ worker.terminate(); worker=null; } finish(segs.length?'Stopped. Partial transcript below.':'Stopped.'); };
+
+function onMsg(e){
+  const m=e.data;
+  if(m.type==='load'){ const names={engine:'engine',encoder:'speech model, part 1 of 2',decoder:'speech model, part 2 of 2'}; setStatus('Loading '+names[m.label]+'…'); setBar(m.done/m.total); }
+  else if(m.type==='status'){ setStatus(m.text); if(m.text.startsWith('Transcribing')) setBar(0); }
+  else if(m.type==='segments'){ m.chunks.forEach(addSeg); }
+  else if(m.type==='progress'){ const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); worker._elapsed=m.elapsed; }
+  else if(m.type==='done'){ finish(segs.length?'Done in '+dur(worker._elapsed||0)+' ('+fmt(worker._total)+' of audio).':'No speech was found in this recording.'); }
+  else if(m.type==='error'){ finish('Error: '+m.text,true); }
+}
+
+$('toggle').onclick=()=>{ const p=out.classList.toggle('plain'); $('toggle').textContent=p?'Show timestamps':'Hide timestamps'; };
+$('copy').onclick=async()=>{
+  const t=out.classList.contains('plain')?plainText():stampedText();
+  try{ await navigator.clipboard.writeText(t); }
+  catch{ const ta=document.createElement('textarea'); ta.value=t; document.body.append(ta); ta.select(); try{document.execCommand('copy');}catch{} ta.remove(); }
+  $('copy').textContent='Copied'; setTimeout(()=>$('copy').textContent='Copy',1400);
+};
+async function save(name,data){
+  if(downloads){ try{ await downloads.save({filename:name,data}); return; }catch(e){} }
+  try{ const u=URL.createObjectURL(new Blob([data],{type:'text/plain;charset=utf-8'})); const a=document.createElement('a'); a.href=u; a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); }
+  catch(e){ setStatus('The file was not saved. Use Copy instead.',true); }
+}
+$('txt').onclick=()=>save(baseName+'.txt', out.classList.contains('plain')?plainText():stampedText());
+$('srt').onclick=()=>save(baseName+'.srt', srtText());
+
+(async()=>{ try{ if(window.claude&&claude.use){ downloads=await claude.use('downloads'); } }catch{} })();
+</script>
+</body>
+</html>
