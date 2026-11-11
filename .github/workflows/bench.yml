@@ -1,0 +1,41 @@
+name: Speed benchmark (Windows)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - shell: bash
+        run: cp ../diarize.js ../words.js src/
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/cache@v4
+        with:
+          path: desktop/models
+          key: models-v1-${{ hashFiles('desktop/scripts/fetch-models.mjs') }}
+      - run: npm run models
+      - name: CPU info
+        shell: pwsh
+        run: Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors | Format-List
+      - name: Benchmark worker layouts (3.4 minute recording, each run twice)
+        shell: bash
+        env:
+          REPEAT: '6'
+        run: |
+          for P in 1x2 2x1 1x4 2x2 1x1; do
+            for r in 1 2; do
+              TRANSCRIBER_PLAN=$P node test/engine-test.mjs test/audio/interview-2-speakers.wav 0 2 > out.txt 2>&1 || true
+              echo "$P run $r: $(grep -o 'DONE in [0-9.]*s' out.txt)"
+            done
+          done
