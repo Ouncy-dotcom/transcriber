@@ -1,0 +1,12 @@
+import { env, pipeline } from '@huggingface/transformers';
+import fs from 'node:fs';
+env.allowRemoteModels=false; env.localModelPath='/home/claude/site/desktop/models/';
+const th=+process.argv[2], part=+process.argv[3], parts=+process.argv[4];
+const raw=fs.readFileSync('/home/claude/eval/data/vox41.f32'); const audio=new Float32Array(raw.buffer,raw.byteOffset,raw.byteLength/4);
+const tr=await pipeline('automatic-speech-recognition','whisper-small_timestamped',{dtype:{encoder_model:'q8',decoder_model_merged:'q8'},session_options:{intraOpNumThreads:th,interOpNumThreads:1}});
+const W=29*16000;
+await tr(audio.subarray(0,16000),{language:'english'});
+process.send?.('ready'); await new Promise(r=>process.once('message',r));
+const t=Date.now();
+for(let i=part;i<4;i+=parts) await tr(audio.subarray(i*W,(i+1)*W),{return_timestamps:'word',language:'english'});
+process.send({ms:Date.now()-t});

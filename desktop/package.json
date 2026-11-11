@@ -1,7 +1,7 @@
 {
   "name": "transcriber",
   "productName": "Transcriber",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Turns audio recordings into text and labels who is speaking, privately on your own computer.",
   "author": "Simon",
   "license": "MIT",

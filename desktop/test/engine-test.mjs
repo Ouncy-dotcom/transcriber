@@ -32,30 +32,39 @@ function readWav(p) {
   throw new Error('no data chunk');
 }
 
-const audio = readWav(file);
-const child = fork(path.join(here, '..', 'src', 'engine.mjs'), [], {
-  env: { ...process.env, TRANSCRIBER_MODELS: process.env.TRANSCRIBER_MODELS || path.join(here, '..', 'models') },
-  serialization: 'advanced',
-});
-const segs = []; let K = 0; const t0 = Date.now();
-const timer = setTimeout(() => { console.error('TIMEOUT'); child.kill(); process.exit(2); }, 30 * 60 * 1000);
-child.on('message', (m) => {
-  if (m.type === 'ready') { console.log('engine ready, threads', m.threads); child.send({ type: 'run', audio, language: 'english', speakers }); }
+const once = readWav(file);
+const repeat = +(process.env.REPEAT || 1);
+const audio = new Float32Array(once.length * repeat); for (let r = 0; r < repeat; r++) audio.set(once, r * once.length);
+const { createCoordinator } = await import('../src/coordinator.mjs');
+const spawn = (threads) => {
+  const c = fork(path.join(here, '..', 'src', 'engine.mjs'), [], {
+    env: { ...process.env, TRANSCRIBER_MODELS: process.env.TRANSCRIBER_MODELS || path.join(here, '..', 'models'), TRANSCRIBER_THREADS: String(threads) },
+    serialization: 'advanced',
+  });
+  return { send: (m) => c.send(m), onMessage: (fn) => c.on('message', fn), onExit: (fn) => c.on('exit', fn), kill: () => c.kill() };
+};
+const segs = []; const t0 = Date.now();
+const timer = setTimeout(() => { console.error('TIMEOUT'); process.exit(2); }, 30 * 60 * 1000);
+const coord = createCoordinator(spawn, (m) => {
+  if (m.type === 'plan') console.log(`plan: ${m.workers} speech worker(s) x ${m.threads} thread(s), speaker worker ${m.speakerThreads} thread(s); ${m.logical} logical CPUs, ${m.freeGB} GB free`);
   else if (m.type === 'status') console.log(((Date.now() - t0) / 1000).toFixed(1) + 's', m.text);
-  else if (m.type === 'speakers') { K = m.count; console.log('speakers found:', K); }
+  else if (m.type === 'speakers') console.log(((Date.now() - t0) / 1000).toFixed(1) + 's speakers found:', m.count);
   else if (m.type === 'segments') for (const c of m.chunks) { segs.push(c); console.log(`[${c.start.toFixed(1)}] S${c.speaker + 1}: ${c.text}`); }
   else if (m.type === 'error') { console.error('ENGINE ERROR', m.text); process.exit(1); }
   else if (m.type === 'done') {
     clearTimeout(timer);
     const secs = audio.length / 16000;
     console.log(`DONE in ${(m.elapsed / 1000).toFixed(1)}s for ${secs.toFixed(1)}s of audio (${(m.elapsed / 1000 / secs).toFixed(2)}x real time)`);
-    child.kill();
+    coord.cancel();
     const text = segs.map(s => s.text).join(' ').toLowerCase();
     let fail = false;
-    if (expectK && +expectK !== new Set(segs.map(s => s.speaker)).size) { console.error('FAIL: expected', expectK, 'speakers, got', new Set(segs.map(s => s.speaker)).size); fail = true; }
+    const k = new Set(segs.map(s => s.speaker)).size;
+    if (expectK && +expectK !== k) { console.error('FAIL: expected', expectK, 'speakers, got', k); fail = true; }
     for (const w of expect) if (!text.includes(w.toLowerCase())) { console.error('FAIL: missing text:', w); fail = true; }
     if (!segs.length) { console.error('FAIL: empty transcript'); fail = true; }
+    for (let i = 1; i < segs.length; i++) if (segs[i].start + 0.01 < segs[i - 1].start) { console.error('FAIL: lines out of order at', segs[i].start); fail = true; break; }
     console.log(fail ? 'TEST FAILED' : 'TEST PASSED');
-    process.exit(fail ? 1 : 0);
+    setTimeout(() => process.exit(fail ? 1 : 0), 200);
   }
 });
+coord.start({ type: 'run', audio, language: 'english', speakers });

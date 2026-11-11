@@ -1,43 +1,39 @@
-// Electron main process: opens the window and runs the engine in a background process.
+// Electron main process: opens the window and runs transcription in background worker processes.
 const { app, BrowserWindow, ipcMain, utilityProcess, shell, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const isPackaged = app.isPackaged;
-const MODELS = isPackaged ? path.join(process.resourcesPath, 'models') : path.join(__dirname, '..', 'models');
-let win = null, engine = null, engineReady = null;
+const MODELS = app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(__dirname, '..', 'models');
+let win = null, coordinator = null;
 
-function startEngine() {
-  engine = utilityProcess.fork(path.join(__dirname, 'engine.mjs'), [], {
-    env: { ...process.env, TRANSCRIBER_MODELS: MODELS },
-    serviceName: 'Transcriber engine',
+const send = (m) => { if (win && !win.isDestroyed()) win.webContents.send('engine', m); };
+
+function spawnWorker(threads) {
+  const p = utilityProcess.fork(path.join(__dirname, 'engine.mjs'), [], {
+    env: { ...process.env, TRANSCRIBER_MODELS: MODELS, TRANSCRIBER_THREADS: String(threads) },
+    serviceName: 'Transcriber worker',
     stdio: 'pipe',
   });
-  engine.stdout?.on('data', (d) => process.stdout.write('[engine] ' + d));
-  engine.stderr?.on('data', (d) => process.stderr.write('[engine] ' + d));
-  engineReady = new Promise((resolve) => {
-    const h = (m) => { if (m && m.type === 'ready') { resolve(); } };
-    engine.on('message', h);
-  });
-  engine.on('message', (m) => { if (win && !win.isDestroyed() && m.type !== 'ready') win.webContents.send('engine', m); });
-  engine.on('exit', (code) => {
-    const crashed = engine && !engine._stopping;
-    engine = null;
-    if (crashed && win && !win.isDestroyed()) win.webContents.send('engine', { type: 'error', text: 'The transcription engine stopped unexpectedly (code ' + code + '). If this keeps happening, the computer may be running out of memory.' });
-  });
+  p.stdout?.on('data', (d) => process.stdout.write('[worker] ' + d));
+  p.stderr?.on('data', (d) => process.stderr.write('[worker] ' + d));
+  return {
+    send: (m) => p.postMessage(m),
+    onMessage: (fn) => p.on('message', fn),
+    onExit: (fn) => p.on('exit', fn),
+    kill: () => { try { p.kill(); } catch {} },
+  };
 }
 
-function stopEngine() {
-  if (engine) { engine._stopping = true; engine.kill(); engine = null; }
+async function getCoordinator() {
+  if (!coordinator) {
+    const { createCoordinator } = await import('./coordinator.mjs');
+    coordinator = createCoordinator(spawnWorker, send);
+  }
+  return coordinator;
 }
 
-ipcMain.handle('run', async (_e, msg) => {
-  if (!engine) startEngine();
-  await engineReady;
-  engine.postMessage(msg);
-  return true;
-});
-ipcMain.handle('cancel', async () => { stopEngine(); return true; });
+ipcMain.handle('run', async (_e, msg) => { const c = await getCoordinator(); c.start(msg); return true; });
+ipcMain.handle('cancel', async () => { const c = await getCoordinator(); c.cancel(); return true; });
 ipcMain.handle('open-external', async (_e, url) => { if (/^https:\/\//.test(url)) await shell.openExternal(url); });
 
 function createWindow() {
@@ -55,14 +51,13 @@ function createWindow() {
 }
 
 Menu.setApplicationMenu(null);
-const single = app.requestSingleInstanceLock();
-if (!single) app.quit();
+if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     if (!fs.existsSync(MODELS)) console.error('Models folder missing: ' + MODELS);
     createWindow();
-    startEngine(); // warm up in the background so the first run starts quicker
+    (await getCoordinator()).warmUp();   // load the speech model in the background so the first run starts sooner
   });
-  app.on('window-all-closed', () => { stopEngine(); app.quit(); });
+  app.on('window-all-closed', async () => { if (coordinator) coordinator.cancel(); app.quit(); });
 }

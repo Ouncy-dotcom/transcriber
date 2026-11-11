@@ -130,7 +130,7 @@ audio{width:100%;margin-top:10px}
 const $ = id => document.getElementById(id);
 const drop=$('drop'), pick=$('pick'), go=$('go'), cancel=$('cancel'), out=$('out'), statusEl=$('status'), bar=$('bar'), player=$('player'), pop=$('pop');
 const HUES=[18,215,140,285,45,330,180,95,250,0];
-let loadParts={}, file=null, worker=null, segs=[], names=[], labelsOn=false, busy=false, downloads=null, baseName='transcript', audioDur=0, lastTurn=null, lastSpk=null;
+let transcribing=false, loadParts={}, file=null, worker=null, segs=[], names=[], labelsOn=false, busy=false, downloads=null, baseName='transcript', audioDur=0, lastTurn=null, lastSpk=null;
 
 function setStatus(t, err){ statusEl.textContent=t||''; statusEl.className=err?'err':''; }
 function setBar(f){ bar.style.display = f==null?'none':'block'; if(f!=null) bar.firstElementChild.style.width=Math.round(Math.min(1,f)*100)+'%'; }
@@ -245,7 +245,7 @@ function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; se
 
 go.onclick=async()=>{
   if(!file||busy) return;
-  busy=true; go.disabled=true; cancel.hidden=false; segs=[]; names=[]; labelsOn=false; closePop(); renderAll(); enableOut(false); $('hint').hidden=true;
+  transcribing=false; busy=true; go.disabled=true; cancel.hidden=false; segs=[]; names=[]; labelsOn=false; closePop(); renderAll(); enableOut(false); $('hint').hidden=true;
   setStatus('Reading audio…'); setBar(0);
   let audio;
   try{ audio=await decode(file); }
@@ -265,11 +265,11 @@ function onMsg(e){
     if(m.label==='encoder'||m.label==='decoder'){ loadParts[m.label]=[m.done,m.total]; const a=loadParts.encoder||[0,7], b=loadParts.decoder||[0,11]; setStatus('Loading speech model…'); setBar((a[0]+b[0])/(a[1]+b[1])); }
     else { setStatus('Loading '+(m.label==='engine'?'engine':'speaker model')+'…'); setBar(m.done/m.total); }
   }
-  else if(m.type==='status'){ setStatus(m.text); setBar(0); }
-  else if(m.type==='diar'){ setStatus('Working out who is speaking… step '+(m.phase==='listen'?1:2)+' of 2'); setBar(m.done/m.total); }
+  else if(m.type==='status'){ if(!transcribing){ setStatus(m.text); setBar(0); } }
+  else if(m.type==='diar'){ if(!transcribing){ setStatus('Working out who is speaking… step '+(m.phase==='listen'?1:2)+' of 2'); setBar(m.done/m.total); } }
   else if(m.type==='speakers'){ labelsOn=m.count>=2; names=[]; }
   else if(m.type==='segments'){ addSegs(m.chunks); }
-  else if(m.type==='progress'){ const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); }
+  else if(m.type==='progress'){ transcribing=true; const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); }
   else if(m.type==='done'){
     const sp=$('spk').value, heard=new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size;
     if(labelsOn&&heard<2){ labelsOn=false; renderAll(); }
