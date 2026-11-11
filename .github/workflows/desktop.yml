@@ -1,0 +1,90 @@
+name: Windows app
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', 'diarize.js', 'words.js', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Use the shared speaker code from the website
+        shell: bash
+        run: cp ../diarize.js ../words.js src/
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: desktop/models
+          key: models-v1-${{ hashFiles('desktop/scripts/fetch-models.mjs') }}
+
+      - name: Download models
+        run: npm run models
+
+      - name: Engine test (Windows, plain Node)
+        run: node test/engine-test.mjs test/audio/interview-2-speakers.wav 0 2 "navy ordered me" "pocket model" "feet long"
+
+      - name: Build installer
+        run: npm run dist
+
+      - name: Install it silently, like a user would
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\Transcriber-Setup-*.exe | Select-Object -First 1
+          Write-Host "Installer: $($setup.Name)  $([math]::Round($setup.Length/1MB)) MB"
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = "$env:LOCALAPPDATA\Programs\Transcriber\Transcriber.exe"
+          if (!(Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 | Select-Object FullName; throw "app not installed at $exe" }
+          "APP_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if (!(Test-Path "$env:USERPROFILE\Desktop\Transcriber.lnk") -and !(Test-Path "$env:PUBLIC\Desktop\Transcriber.lnk")) { Write-Warning "no desktop shortcut found" }
+
+      - name: Full app test on the installed app
+        run: node test/app-test.mjs "${{ env.APP_EXE }}"
+
+      - name: Screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: desktop/test-output
+          if-no-files-found: ignore
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Transcriber-Setup
+          path: desktop/dist/Transcriber-Setup-*.exe
+          compression-level: 0
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          TAG="desktop-v$VER"
+          FILE=$(ls dist/Transcriber-Setup-*.exe | head -1)
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Transcriber for Windows $VER" --notes "Windows app. Download Transcriber-Setup-$VER.exe and run it. Windows may show a blue 'Windows protected your PC' box because the app is not signed: click More info, then Run anyway."
+          gh release upload "$TAG" "$FILE" --clobber

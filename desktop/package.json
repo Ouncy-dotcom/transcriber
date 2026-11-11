@@ -1,0 +1,80 @@
+{
+  "name": "transcriber",
+  "productName": "Transcriber",
+  "version": "1.0.0",
+  "description": "Turns audio recordings into text and labels who is speaking, privately on your own computer.",
+  "author": "Simon",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/main.cjs",
+  "scripts": {
+    "models": "node scripts/fetch-models.mjs",
+    "start": "electron .",
+    "test:engine": "node test/engine-test.mjs",
+    "test:app": "node test/app-test.mjs",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1"
+  },
+  "devDependencies": {
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0",
+    "playwright": "1.65.0"
+  },
+  "build": {
+    "appId": "io.github.ouncy-dotcom.transcriber",
+    "productName": "Transcriber",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "package.json",
+      "!node_modules/onnxruntime-web/**",
+      "!node_modules/@huggingface/transformers/dist/{transformers.js,transformers.min.js,transformers.web.js,transformers.web.min.js,*.wasm,ort-*}",
+      "!node_modules/@huggingface/transformers/src/**"
+    ],
+    "asar": false,
+    "extraResources": [
+      {
+        "from": "models",
+        "to": "models",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "files": [
+        "!node_modules/onnxruntime-node/bin/napi-v3/{linux,darwin}/**",
+        "!node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/**",
+        "!node_modules/@img/sharp-*{linux,darwin}*/**"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Transcriber",
+      "runAfterFinish": true,
+      "artifactName": "Transcriber-Setup-${version}.exe"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ouncy-dotcom/transcriber.git"
+  }
+}
