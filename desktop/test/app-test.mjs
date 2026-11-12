@@ -16,7 +16,7 @@ const t0 = Date.now();
 import os from 'node:os';
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'transcriber-test-'));
 const docxPath = path.join(dataDir, 'export.docx');
-const app = await electron.launch({ executablePath: exe || undefined, args, timeout: 120000, env: { ...process.env, TRANSCRIBER_DATA: dataDir, TRANSCRIBER_SAVE_PATH: docxPath } });
+const app = await electron.launch({ executablePath: exe || undefined, args, timeout: 120000, env: { ...process.env, TRANSCRIBER_DATA: dataDir, TRANSCRIBER_SAVE_PATH: docxPath, TRANSCRIBER_FAKE_MIC: path.join(here, 'audio', 'interview-2-speakers.wav') } });
 app.process().stdout?.on('data', (d) => process.stdout.write(d));
 app.process().stderr?.on('data', (d) => process.stderr.write(d));
 const page = await app.firstWindow();
@@ -94,6 +94,26 @@ await page.click('#go'); await page.waitForTimeout(1500); await page.click('#can
 check((await page.innerText('#status')).startsWith('Stopped'), 'stop button');
 await page.click('#go'); status = await waitDone();
 check(status.startsWith('Done'), 'runs again after stopping: ' + status);
+// live: record from the (fake) microphone, which plays the 34 s interview, then stop
+{
+  const before = (await page.$$('#recentList .item')).length;
+  await page.click('#recBtn');
+  await page.waitForTimeout(2000);
+  check(!(await page.$eval('#recPanel', el => el.hidden)), 'recording starts (microphone opened)');
+  let liveText = '';
+  for (let i = 0; i < 60; i++) { await page.waitForTimeout(1000); liveText = await page.innerText('#out'); if (/feet/i.test(liveText) && i > 36) break; }
+  check(/navy/i.test(liveText), 'text appears live while recording');
+  await page.screenshot({ path: path.join(shots, 'live.png') });
+  await page.click('#recStop');
+  const st = await waitDone();
+  const t = (await page.innerText('#out')).toLowerCase();
+  check(st.startsWith('Recording finished') && /found [23] speakers/i.test(st), 'stop: speakers labelled: ' + st);
+  for (const w of ['navy ordered me', 'pocket model', 'feet long']) check(t.includes(w), 'live transcript contains "' + w + '"');
+  check(!(await page.$eval('#player', el => el.hidden)), 'recording can be played back');
+  check((await page.$$('#recentList .item')).length === before + 1, 'recording saved to Recent');
+  const recFiles = fs.readdirSync(path.join(dataDir, 'recordings'));
+  check(recFiles.length === 1 && fs.statSync(path.join(dataDir, 'recordings', recFiles[0])).size > 50000, 'audio file saved: ' + recFiles.join(', '));
+}
 // other file types people actually have: phone recordings, WhatsApp voice notes, videos
 for (const f of ['clip.mp3', 'clip.m4a', 'voicenote.ogg', 'clip.mp4']) {
   await page.setInputFiles('#pick', path.join(here, 'audio', f));

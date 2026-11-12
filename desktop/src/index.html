@@ -91,6 +91,21 @@ audio{width:100%;margin-top:10px}
 #voicesPop .v{display:flex;align-items:center;gap:8px;padding:4px 0}
 #voicesPop .v span{flex:1}
 #check{border-color:#d97706}
+.inrow{display:flex;gap:10px;align-items:stretch}
+.inrow #drop{flex:1}
+#recBtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:150px;border:2px dashed var(--line);border-radius:12px;background:transparent;font-weight:600}
+#recBtn:hover:not(:disabled){border-color:#dc2626;background:var(--soft)}
+#recBtn .dotr{width:16px;height:16px;border-radius:50%;background:#dc2626}
+#recBtn small{font-weight:400;color:var(--mute);font-size:12px}
+#recPanel{display:flex;align-items:center;gap:14px;padding:18px;border:2px solid #dc2626;border-radius:12px;background:var(--soft)}
+#recPanel .pulse{width:14px;height:14px;border-radius:50%;background:#dc2626;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.25}}
+#recTime{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;min-width:70px}
+#recLevel{flex:1;height:8px;background:var(--line);border-radius:99px;overflow:hidden}
+#recLevel i{display:block;height:100%;width:0;background:#16a34a;transition:width .08s}
+#recNote{font-size:13px;color:var(--mute)}
+#recStop{background:#dc2626;border-color:#dc2626;color:#fff;font-weight:600}
+.seg.live p{color:var(--ink)}
 </style>
 </head>
 <body>
@@ -105,7 +120,15 @@ audio{width:100%;margin-top:10px}
 </div>
 
 <div class="card">
-  <div id="drop"><b>Drop an audio or video file here</b><span>or click to choose. MP3, WAV, M4A, OGG, WEBM, MP4 and more</span></div>
+  <div class="inrow" id="inrow">
+    <div id="drop"><b>Drop an audio or video file here</b><span>or click to choose. MP3, WAV, M4A, OGG, WEBM, MP4 and more</span></div>
+    <button id="recBtn" title="Record from the microphone and transcribe as you speak"><span class="dotr"></span>Record live<small>from the microphone</small></button>
+  </div>
+  <div id="recPanel" hidden>
+    <span class="pulse"></span><span id="recTime">0:00</span>
+    <div style="flex:1"><div id="recLevel"><i></i></div><div id="recNote">Listening. Text appears a few seconds after each sentence.</div></div>
+    <button id="recStop">Stop</button>
+  </div>
   <input type="file" id="pick" accept="audio/*,video/*,.mp3,.wav,.m4a,.ogg,.opus,.flac,.aac,.webm,.mp4,.amr,.wma" hidden>
   <div id="file"></div>
   <audio id="player" controls hidden></audio>
@@ -169,6 +192,7 @@ audio{width:100%;margin-top:10px}
   </div>
   <div id="out"></div>
   <p class="hint" id="hint" hidden>Speaker labels are a best guess. Click a name to rename it, or the dot beside a line to change who said it. Names you give are remembered, so the app can recognise those voices in future recordings.</p>
+  <p class="hint" id="hintRec" hidden><button class="linkish" id="saveRec">Save the recording as a file</button></p>
   <p class="hint" id="hintUnsure" hidden>Words with a wavy underline are ones the app wasn't sure about. Use "Next to check" to jump through them; click a word to fix it.</p>
 </div>
 <div id="pop" hidden></div>
@@ -468,8 +492,97 @@ async function openTranscript(id){
     if(bytes){ const f=new File([bytes], filePath.split(/[\\/]/).pop()); setFile(f, filePath); setStatus('Opened. The original recording is loaded, so you can play it or transcribe it again.'); }
     else setStatus('Opened. The original recording was moved or deleted, so playback is not available.');
   } else setStatus('Opened.');
+  $('hintRec').hidden=!(filePath&&/[\\/]recordings[\\/]Recording /.test(filePath));
   refreshRecent();
 }
+
+
+// ---------- live recording ----------
+let rec=null;
+const SRL=16000;
+function recBufPush(f){
+  if(rec.len+f.length>rec.buf.length){ const nb=new Float32Array(rec.buf.length*2); nb.set(rec.buf.subarray(0,rec.len)); rec.buf=nb; }
+  rec.buf.set(f,rec.len); rec.len+=f.length;
+  let sum=0; for(let i=0;i<f.length;i++) sum+=f[i]*f[i]; const r=Math.sqrt(sum/f.length);
+  rec.levels.push(r);
+  $('recLevel').firstElementChild.style.width=Math.min(100,Math.round(Math.sqrt(r)*260))+'%';
+  maybeCut(false);
+}
+function blockRms(a,b){ let s=0; for(let i=a;i<b;i++) s+=rec.buf[i]*rec.buf[i]; return Math.sqrt(s/Math.max(1,b-a)); }
+// Send a chunk to the engine at a natural pause, so words aren't cut in half.
+function maybeCut(final){
+  const pending=rec.len-rec.cut;
+  if(final){ if(pending>0.3*SRL) sendChunk(rec.len); return; }
+  if(pending<4*SRL) return;
+  const sorted=[...rec.levels].sort((a,b)=>a-b);
+  const floor=sorted[Math.floor(sorted.length*0.2)]||0;
+  const thr=Math.max(0.004,floor*2.5);
+  const quiet=blockRms(rec.len-0.5*SRL,rec.len)<thr;
+  if(quiet && pending>=9*SRL){ sendChunk(rec.len-Math.round(0.25*SRL)); return; }
+  if(pending>=25*SRL){
+    // no pause for a long time: cut at the quietest moment in the last 10 seconds
+    let best=rec.len, bv=Infinity;
+    for(let p=rec.len-10*SRL;p<rec.len-0.1*SRL;p+=0.1*SRL){ const v=blockRms(p,p+0.1*SRL); if(v<bv){ bv=v; best=p+0.05*SRL; } }
+    sendChunk(Math.round(best));
+  }
+}
+function sendChunk(at){
+  const a=rec.buf.slice(rec.cut,at), offset=rec.cut/SRL;
+  rec.cut=at; rec.sent++;
+  api.liveChunk({audio:a, offset});
+}
+function recTick(){ if(!rec) return; const s=Math.floor((Date.now()-rec.t0)/1000); $('recTime').textContent=fmt(s); }
+async function startRec(){
+  if(busy) return;
+  if(saveTimer) await saveNow();
+  let stream;
+  // raw sound: Chrome's voice processing changes how voices sound and confuses speaker detection
+  try{ stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false}}); }
+  catch(e){ setStatus('The microphone could not be opened. In Windows Settings, go to Privacy & security, then Microphone, and turn on "Let desktop apps access your microphone". ('+(e.name||e.message||e)+')',true); return; }
+  try{
+    const ctx=new AudioContext({sampleRate:SRL});
+    await ctx.audioWorklet.addModule('mic-worklet.js');
+    const src=ctx.createMediaStreamSource(stream), node=new AudioWorkletNode(ctx,'mic-tap'), mute=ctx.createGain(); mute.gain.value=0;
+    src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+    const type=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/webm'].find(t=>MediaRecorder.isTypeSupported(t));
+    const mr=new MediaRecorder(stream,type?{mimeType:type,audioBitsPerSecond:64000}:undefined); const parts=[];
+    mr.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+    rec={stream,ctx,node,mr,parts,type:mr.mimeType||type||'audio/webm',buf:new Float32Array(SRL*120),len:0,cut:0,sent:0,levels:[],t0:Date.now(),timer:setInterval(recTick,500)};
+    node.port.onmessage=e=>{ if(rec&&!rec.stopping) recBufPush(e.data); };
+    mr.start(1000);
+  }catch(e){ stream.getTracks().forEach(t=>t.stop()); setStatus('Could not start recording: '+(e.message||e),true); return; }
+  // same fresh start as a file transcription
+  transcribing=false; busy=true; go.disabled=true; cancel.hidden=true; segs=[]; names=[]; userNamed=[]; recognised=[]; voiceprints=[]; labelsOn=false; cur=null;
+  file=null; filePath=null; player.hidden=true; $('file').textContent=''; $('hintRec').hidden=true;
+  closePop(); closeFind(); renderAll(); enableOut(false); $('hint').hidden=true; refreshRecent();
+  $('inrow').hidden=true; $('recPanel').hidden=false; $('recTime').textContent='0:00'; setBar(null);
+  setStatus('Recording…');
+  await api.liveStart({type:'live',language:$('lang').value||null,speakers:$('spk').value==='auto'?'0':$('spk').value});
+}
+async function stopRec(){
+  if(!rec||rec.stopping) return;
+  rec.stopping=true; clearInterval(rec.timer);
+  maybeCut(true);
+  const blob=await new Promise(res=>{ rec.mr.onstop=()=>res(new Blob(rec.parts,{type:rec.type})); rec.mr.stop(); });
+  rec.stream.getTracks().forEach(t=>t.stop()); try{ await rec.ctx.close(); }catch{}
+  $('recPanel').hidden=true; $('inrow').hidden=false; cancel.hidden=false;
+  const full=rec.buf.slice(0,rec.len); audioDur=rec.len/SRL;
+  const when=new Date(rec.t0);
+  baseName='Recording '+when.toLocaleString('en-ZA',{day:'numeric',month:'short'})+' '+when.toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'});
+  rec=null;
+  try{
+    const ext=/ogg/.test(blob.type)?'ogg':'webm';
+    filePath=await api.saveRecording(new Uint8Array(await blob.arrayBuffer()), ext);
+    file=new File([blob], baseName+'.'+ext, {type:blob.type});
+    player.src=URL.createObjectURL(blob); player.hidden=false;
+    $('file').innerHTML='<b></b> · '+fmt(audioDur); $('file').firstChild.textContent=baseName;
+  }catch(e){ setStatus('The recording could not be saved: '+(e.message||e),true); }
+  setStatus('Finishing…');
+  await api.liveFinish({audio:full});
+}
+$('recBtn').onclick=startRec;
+$('recStop').onclick=stopRec;
+$('saveRec').onclick=async()=>{ const f=await api.exportRecording(cur&&cur.filePath); if(f) setStatus('Recording saved: '+f); };
 
 // ---------- run ----------
 function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; setBar(null); setStatus(msg,err); enableOut(segs.length>0); $('hint').hidden=!(labelsOn&&segs.length); count(); refreshRecent(); }
@@ -498,6 +611,9 @@ async function onMsg(m){
   else if(m.type==='speakers'){ labelsOn=m.count>=2; names=[]; }
   else if(m.type==='speaker-name'){ while(names.length<=m.speaker) names.push('Speaker '+(names.length+1)); names[m.speaker]=m.name; recognised[m.speaker]=true; }
   else if(m.type==='segments'){ addSegs(m.chunks); }
+  else if(m.type==='live-queue'){ if(rec&&!rec.stopping) $('recNote').textContent=m.waiting>2?'Listening. Text is '+m.waiting+' sentences behind; it will catch up.':'Listening. Text appears a few seconds after each sentence.'; }
+  else if(m.type==='live-warning'){ $('recNote').textContent='A part could not be transcribed: '+m.text; }
+  else if(m.type==='replace'){ segs=[]; names=names.slice(0); out.textContent=''; renderAll(); addSegs(m.chunks); }
   else if(m.type==='progress'){ transcribing=true; const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); }
   else if(m.type==='done'){
     const sp=$('spk').value, heard=new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size;
@@ -513,7 +629,8 @@ async function onMsg(m){
       cur={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), title:baseName, created:Date.now(), duration:audioDur, filePath};
       busy=false; await saveNow();
     }
-    finish(segs.length?'Done in '+dur(m.elapsed)+' ('+fmt(audioDur)+' of audio).'+who+fixes:'No speech was found in this recording.');
+    if(m.live){ $('hintRec').hidden=!segs.length; finish(segs.length?'Recording finished ('+fmt(audioDur)+').'+who+fixes:'No speech was heard in this recording.'); }
+    else finish(segs.length?'Done in '+dur(m.elapsed)+' ('+fmt(audioDur)+' of audio).'+who+fixes:'No speech was found in this recording.');
   }
   else if(m.type==='error'){ api.cancel(); finish('Error: '+m.text,true); }
 }

@@ -1,5 +1,5 @@
 // Electron main process: opens the window and runs transcription in background worker processes.
-const { app, BrowserWindow, ipcMain, utilityProcess, shell, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, utilityProcess, shell, Menu, dialog, session } = require('electron');
 const { createStore, buildDocx } = require('./store.cjs');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -8,6 +8,12 @@ const MODELS = app.isPackaged ? path.join(process.resourcesPath, 'models') : pat
 let win = null, coordinator = null, store = null;
 // tests can point the app at a throwaway data folder
 if (process.env.TRANSCRIBER_DATA) app.setPath('userData', process.env.TRANSCRIBER_DATA);
+// tests feed a sound file in as if it were the microphone
+if (process.env.TRANSCRIBER_FAKE_MIC) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.TRANSCRIBER_FAKE_MIC + '%noloop');
+}
 
 const send = (m) => { if (win && !win.isDestroyed()) win.webContents.send('engine', m); };
 
@@ -75,6 +81,26 @@ ipcMain.handle('find', async (_e, text, opts) => {
   win.webContents.findInPage(text, opts || {});
 });
 ipcMain.handle('cancel', async () => { const c = await getCoordinator(); c.cancel(); return true; });
+
+// live transcription from the microphone
+ipcMain.handle('live-start', async (_e, msg) => { const c = await getCoordinator(); msg.voices = store.listVoices(); c.liveStart(msg); return true; });
+ipcMain.handle('live-chunk', async (_e, msg) => { const c = await getCoordinator(); c.liveChunk(msg); return true; });
+ipcMain.handle('live-finish', async (_e, msg) => { const c = await getCoordinator(); c.liveFinish(msg); return true; });
+ipcMain.handle('save-recording', async (_e, bytes, ext) => {
+  const dir = path.join(app.getPath('userData'), 'recordings');
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+  const file = path.join(dir, 'Recording ' + stamp + '.' + (ext === 'ogg' ? 'ogg' : 'webm'));
+  fs.writeFileSync(file, Buffer.from(bytes));
+  return file;
+});
+ipcMain.handle('export-recording', async (_e, src) => {
+  if (typeof src !== 'string' || !fs.existsSync(src) || !src.startsWith(path.join(app.getPath('userData'), 'recordings'))) return null;
+  const r = await dialog.showSaveDialog(win, { title: 'Save recording', defaultPath: path.basename(src), filters: [{ name: 'Audio', extensions: [path.extname(src).slice(1)] }] });
+  if (r.canceled || !r.filePath) return null;
+  fs.copyFileSync(src, r.filePath);
+  return r.filePath;
+});
 ipcMain.handle('open-external', async (_e, url) => { if (/^https:\/\//.test(url)) await shell.openExternal(url); });
 
 function createWindow() {
@@ -98,6 +124,10 @@ else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(async () => {
     store = createStore(app.getPath('userData'));
+    // the microphone is only ever allowed for audio, and only for the app's own window
+    const allowMic = (wc, permission, details) => permission === 'media' && wc === win?.webContents && (!details?.mediaTypes || details.mediaTypes.every(t => t === 'audio'));
+    session.defaultSession.setPermissionRequestHandler((wc, permission, cb, details) => cb(allowMic(wc, permission, details)));
+    session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === 'media' && wc === win?.webContents);
     if (!fs.existsSync(MODELS)) console.error('Models folder missing: ' + MODELS);
     createWindow();
     (await getCoordinator()).warmUp();   // load the speech model in the background so the first run starts sooner

@@ -214,12 +214,90 @@ export function createCoordinator(spawn, emit) {
     emit({ type: 'done', elapsed: performance.now() - t0, workers: cfg.workers, threads: cfg.threads, loopsFixed, wordsDropped, voiceprints });
   }
 
+  // ---------- live: chunks arrive from the microphone while the person is still talking ----------
+  let live = null;
+  function liveStart(msg) {
+    getPlan();
+    ensurePool(cfg, msg.speakers !== 'off');
+    live = { msg, results: [], sent: 0, next: 0, words: [], pending: [], cancelled: false, loopsFixed: 0 };
+    job = live;
+    emit({ type: 'plan', ...cfg });
+  }
+  function liveFlush() {
+    const L = live;
+    while (L.sent < L.results.length && L.results[L.sent] !== undefined) {
+      const words = L.results[L.sent];
+      if (words.length) {
+        L.words.push(...words);
+        const chunks = groupSegments(words.map(w => ({ ...w, spk: -1 })), false);
+        if (chunks.length) emit({ type: 'segments', chunks, live: true });
+      }
+      L.sent++;
+    }
+    emit({ type: 'live-queue', waiting: L.results.length - L.sent });
+  }
+  function liveChunk({ audio, offset }) {
+    const L = live; if (!L || L.cancelled) return;
+    const i = L.results.length; L.results.push(undefined);
+    const a = audio instanceof Float32Array ? audio : new Float32Array(audio.buffer ?? audio);
+    const w = pool[L.next++ % pool.length];
+    const clean = L.msg.cleanup === false ? a : cleanAudio(a);
+    const p = (rms(clean, 0, clean.length) < 0.0015 ? Promise.resolve({ words: [] })
+      : w.ready.then(() => w.request({ type: 'chunk', i, audio: clean, offset, segEnd: offset + a.length / SR, language: L.msg.language })))
+      .then((m) => { if (L.cancelled) return; L.results[i] = m.words || []; L.loopsFixed += m.loopFixed || 0; liveFlush(); })
+      .catch((err) => { if (!L.cancelled) { L.results[i] = []; emit({ type: 'live-warning', text: String(err && err.message || err) }); liveFlush(); } });
+    L.pending.push(p);
+  }
+  // Recording stopped: finish any chunks still being transcribed, then label speakers over the whole recording.
+  async function liveFinish({ audio }) {
+    const L = live; if (!L) return;
+    const t0 = performance.now();
+    emit({ type: 'status', text: 'Finishing the last few words…' });
+    await Promise.all(L.pending);
+    if (L.cancelled) return;
+    const full = audio instanceof Float32Array ? audio : new Float32Array(audio.buffer ?? audio);
+    let voiceprints = [];
+    if (L.msg.speakers !== 'off' && L.words.length) {
+      emit({ type: 'status', text: 'Working out who said what…' });
+      await speakerWorker.ready;
+      const m = await speakerWorker.request({ type: 'diarize', audio: full, speakers: L.msg.speakers });
+      if (L.cancelled) return;
+      const tl = m.tl.K > 0 ? m.tl : null;
+      emit({ type: 'speakers', count: m.tl.K });
+      if (tl) {
+        const voiceNames = matchVoices(tl.voiceprints || [], L.msg.voices);
+        let labelled = dropOutsideSpeech(L.words.map(w => ({ ...w, spk: -1 })), (a, b) => anySpeech(tl, a, b));
+        assignSpeakers(labelled, tl);
+        const chunks = groupSegments(labelled, true);
+        const order = new Map();
+        for (const c of chunks) if (c.speaker >= 0) {
+          if (!order.has(c.speaker)) {
+            order.set(c.speaker, order.size);
+            const vn = voiceNames[c.speaker];
+            if (vn) emit({ type: 'speaker-name', speaker: order.get(c.speaker), name: vn.name, sim: vn.sim });
+          }
+          c.speaker = order.get(c.speaker);
+        }
+        for (const [c, d] of order) voiceprints[d] = tl.voiceprints?.[c] ?? null;
+        emit({ type: 'replace', chunks });
+      }
+    }
+    live = null;
+    emit({ type: 'done', live: true, elapsed: performance.now() - t0, loopsFixed: L.loopsFixed, wordsDropped: 0, voiceprints });
+  }
+
   return {
+    liveStart(msg) { try { liveStart(msg); } catch (err) { emit({ type: 'error', text: String(err && err.message || err) }); } },
+    liveChunk,
+    async liveFinish(msg) {
+      try { await liveFinish(msg); }
+      catch (err) { if (!job?.cancelled) { killAll(); live = null; emit({ type: 'error', text: String(err && err.message || err) }); } }
+    },
     async start(msg) {
       try { await run(msg); }
       catch (err) { if (!job?.cancelled) { killAll(); emit({ type: 'error', text: String(err && err.message || err) }); } }
     },
-    cancel() { if (job) job.cancelled = true; killAll(); },
+    cancel() { if (job) job.cancelled = true; live = null; killAll(); },
     // warm up one speech worker in the background so the first run starts sooner
     warmUp() {
       ensurePool(getPlan(), false);
