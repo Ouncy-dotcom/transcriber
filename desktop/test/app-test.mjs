@@ -13,7 +13,10 @@ const args = exe ? [] : [path.join(here, '..')];
 if (process.platform === 'linux') args.push('--no-sandbox');
 
 const t0 = Date.now();
-const app = await electron.launch({ executablePath: exe || undefined, args, timeout: 120000 });
+import os from 'node:os';
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'transcriber-test-'));
+const docxPath = path.join(dataDir, 'export.docx');
+const app = await electron.launch({ executablePath: exe || undefined, args, timeout: 120000, env: { ...process.env, TRANSCRIBER_DATA: dataDir, TRANSCRIBER_SAVE_PATH: docxPath } });
 app.process().stdout?.on('data', (d) => process.stdout.write(d));
 app.process().stderr?.on('data', (d) => process.stderr.write(d));
 const page = await app.firstWindow();
@@ -36,19 +39,60 @@ let fail = false;
 const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (!ok) fail = true; };
 check(status.startsWith('Done'), 'finished: ' + status);
 check(/Found 2 speakers/.test(status), 'found 2 speakers');
+await page.screenshot({ path: path.join(shots, 'app-result.png') });
 for (const w of ['Navy ordered me', 'pocket model', 'feet long']) check(out.toLowerCase().includes(w.toLowerCase()), 'contains "' + w + '"');
-// rename a speaker and make sure every label for that speaker changes
+const waitDone = async () => { let st = ''; for (let i = 0; i < 900; i++) { st = await page.innerText('#status'); if (/^(Done|Error|Could not|This file|No speech)/.test(st)) break; await page.waitForTimeout(1000); } return st; };
+// unsure words: underlined, and "Next to check" jumps to one
+const unsure = await page.$$eval('.w.unsure', els => els.map(e => e.textContent));
+check(unsure.length > 0 && unsure.length < 15, 'underlines a few unsure words (' + unsure.join(', ') + ')');
+await page.click('#check'); await page.waitForTimeout(600);
+await page.locator('#out').screenshot({ path: path.join(shots, 'transcript.png') });
+check(await page.$('.w.cur') !== null, '"Next to check" jumps to an unsure word');
+// saved to recent transcripts automatically
+check((await page.$$('#recentList .item')).length === 1, 'finished transcript appears in Recent');
+// rename a speaker: every label changes, and the voice is remembered
 const who = await page.$$('.who');
-if (who.length) {
-  await who[0].click(); await page.fill('#pop input', 'Interviewer'); await page.click('#pop .r button');
-  const names = await page.$$eval('.who', els => els.map(e => e.textContent));
-  check(names.includes('Interviewer') && !names.includes('Speaker 1'), 'rename speaker');
-}
+await who[0].click(); await page.fill('#pop input', 'Interviewer'); await page.click('#pop .r button');
+const names = await page.$$eval('.who', els => els.map(e => e.textContent));
+check(names.some(n => n.startsWith('Interviewer')) && !names.some(n => n.startsWith('Speaker 1')), 'rename speaker');
+await page.waitForTimeout(500);
+check(/saved voices \(1\)/.test(await page.innerText('#voicesBtn')), 'renamed voice is saved');
+// find and replace
+await page.keyboard.press('Control+f'); await page.fill('#findIn', 'computer');
+await page.waitForTimeout(200);
+const n1 = await page.innerText('#findN');
+check(/of [1-9]/.test(n1), 'find shows matches: ' + n1);
+await page.fill('#replIn', 'machine'); await page.click('#replAll');
+const after = await page.innerText('#out');
+check(!/computer/i.test(after) && /machine/i.test(after), 'replace all');
+await page.keyboard.press('Escape');
+// Word export
+await page.click('#docx'); await page.waitForTimeout(1500);
+const docxOk = fs.existsSync(docxPath) && fs.statSync(docxPath).size > 3000;
+let docxText = '';
+if (docxOk) { const { execSync } = await import('node:child_process'); try { docxText = execSync(process.platform === 'win32' ? `tar -xOf "${docxPath}" word/document.xml` : `unzip -p "${docxPath}" word/document.xml`).toString(); } catch {} }
+check(docxOk && docxText.includes('Interviewer') && docxText.includes('machine'), 'Save Word: document has speaker names and edits');
+await page.waitForTimeout(1200);   // let the edits auto-save
+// transcribe the same recording again: the renamed voice should be recognised
+await page.click('#go'); status = await waitDone();
+const names2 = await page.$$eval('.who', els => els.map(e => e.textContent));
+check(names2.some(n => n.startsWith('Interviewer') && n.includes('recognised')), 'recognises the saved voice in a new transcription: ' + status);
+check((await page.$$('#recentList .item')).length === 2, 'second transcript in Recent');
+// reopen the first one: edits were kept
+const items = await page.$$('#recentList .item');
+await (await items[1].$('button')).click(); await page.waitForTimeout(1500);
+const reopened = await page.innerText('#out');
+check(/machine/i.test(reopened) && /Interviewer/.test(reopened), 'reopened transcript keeps edits and names');
+check(!(await page.$eval('#player', el => el.hidden)), 'reopened transcript can play the original recording');
+// delete it (two clicks: Delete, then confirm)
+const del = await (await page.$$('#recentList .item'))[1].$('button.del');
+await del.click(); await del.click(); await page.waitForTimeout(500);
+check((await page.$$('#recentList .item')).length === 1, 'delete from Recent');
+await page.setInputFiles('#pick', audio);
 // stop button: start again and cancel straight away, then make sure a new run still works
 await page.click('#go'); await page.waitForTimeout(1500); await page.click('#cancel');
 check((await page.innerText('#status')).startsWith('Stopped'), 'stop button');
-await page.click('#go');
-for (let i = 0; i < 900; i++) { status = await page.innerText('#status'); if (/^(Done|Error|Could not)/.test(status)) break; await page.waitForTimeout(1000); }
+await page.click('#go'); status = await waitDone();
 check(status.startsWith('Done'), 'runs again after stopping: ' + status);
 // other file types people actually have: phone recordings, WhatsApp voice notes, videos
 for (const f of ['clip.mp3', 'clip.m4a', 'voicenote.ogg', 'clip.mp4']) {

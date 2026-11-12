@@ -63,6 +63,12 @@ const coord = createCoordinator(spawn, (m) => {
     for (const w of expect) if (!text.includes(w.toLowerCase())) { console.error('FAIL: missing text:', w); fail = true; }
     if (!segs.length) { console.error('FAIL: empty transcript'); fail = true; }
     for (let i = 1; i < segs.length; i++) if (segs[i].start + 0.01 < segs[i - 1].start) { console.error('FAIL: lines out of order at', segs[i].start); fail = true; break; }
+    const allWords = segs.flatMap(s => s.words || []);
+    const withP = allWords.filter(w => w.p != null);
+    console.log(`word confidence on ${withP.length}/${allWords.length} words; least sure:`, [...withP].sort((a, b) => a.p - b.p).slice(0, 6).map(w => `${w.t}(${w.p.toFixed(2)})`).join(' '));
+    console.log(`voice prints: ${(m.voiceprints || []).filter(Boolean).length}, loops fixed: ${m.loopsFixed}, invented words dropped: ${m.wordsDropped}`);
+    if (expectK && withP.length < allWords.length * 0.9) { console.error('FAIL: word confidence missing'); fail = true; }
+    if (expectK && (m.voiceprints || []).filter(Boolean).length !== +expectK) { console.error('FAIL: voice prints missing'); fail = true; }
     console.log(fail ? 'TEST FAILED' : 'TEST PASSED');
     setTimeout(() => process.exit(fail ? 1 : 0), 200);
   }

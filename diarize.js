@@ -326,7 +326,9 @@ export function buildTimeline(audioLen, wins, items, clustering, opts = {}) {
   const turns = [];
   for (let c = 0; c < active.length; c++) for (const [s, e] of runsOf(active[c], G)) turns.push({ start: s === 0 ? 0 : frameTime(s), end: frameTime(e), speaker: c });
   turns.sort((a, b) => a.start - b.start);
-  return { K: active.length, G, active, turns, frameTime };
+  // one voice print per final speaker, in the same order, so a speaker can be recognised in later recordings
+  const voiceprints = perm.map(c => Array.from(centroids[c]));
+  return { K: active.length, G, active, turns, frameTime, voiceprints };
 }
 
 export async function diarize(audio, { segment, embed, numSpeakers = 0, opts = {}, onProgress } = {}) {

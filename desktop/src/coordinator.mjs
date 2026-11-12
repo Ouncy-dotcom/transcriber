@@ -5,6 +5,26 @@
 import os from 'node:os';
 import { anySpeech } from './diarize.js';
 import { assignSpeakers, groupSegments } from './words.js';
+import { cleanAudio, dropOutsideSpeech } from './quality.mjs';
+
+// Saved voices: a speaker is given a saved name when their voice print is clearly closest to it.
+// Calibrated on 50 labelled recordings: the same person scores 0.55-0.99, strangers almost never pass 0.6.
+const MATCH = 0.6, MARGIN = 0.08;
+export function matchVoices(voiceprints, saved) {
+  const names = new Array(voiceprints.length).fill(null);
+  if (!saved || !saved.length) return names;
+  const pairs = [];
+  voiceprints.forEach((v, k) => {
+    const sims = saved.map(sv => { let d = 0; for (let i = 0; i < v.length; i++) d += v[i] * sv.emb[i]; return d; });
+    const order = [...sims.keys()].sort((a, b) => sims[b] - sims[a]);
+    const best = sims[order[0]], second = order.length > 1 ? sims[order[1]] : -1;
+    if (best >= MATCH && best - second >= MARGIN) pairs.push([best, k, order[0]]);
+  });
+  pairs.sort((a, b) => b[0] - a[0]);
+  const usedK = new Set(), usedS = new Set();
+  for (const [sim, k, si] of pairs) if (!usedK.has(k) && !usedS.has(si)) { usedK.add(k); usedS.add(si); names[k] = { name: saved[si].name, sim: +sim.toFixed(3) }; }
+  return names;
+}
 
 const SR = 16000;
 const GB = 1024 ** 3;
@@ -109,17 +129,24 @@ export function createCoordinator(spawn, emit) {
     const myJob = job = { cancelled: false };
     const audio = msg.audio instanceof Float32Array ? msg.audio : new Float32Array(msg.audio.buffer ?? msg.audio);
     const wantSpeakers = msg.speakers !== 'off';
+    // cleaned copy for the speech model (hum removed, quiet voices lifted); speaker detection uses the original
+    const clean = msg.cleanup === false ? audio : cleanAudio(audio);
+    let loopsFixed = 0, wordsDropped = 0;
     getPlan();
     emit({ type: 'plan', ...cfg });
     ensurePool(cfg, wantSpeakers);
     const t0 = performance.now();
 
     // 1. speaker detection starts straight away on its own worker
-    let timeline = null;
+    let timeline = null, voiceNames = [];
     const timelineReady = wantSpeakers
       ? speakerWorker.ready
           .then(() => { emit({ type: 'status', text: 'Working out who is speaking…' }); return speakerWorker.request({ type: 'diarize', audio, speakers: msg.speakers }); })
-          .then((m) => { timeline = m.tl.K > 0 ? m.tl : null; emit({ type: 'speakers', count: m.tl.K }); })
+          .then((m) => {
+            timeline = m.tl.K > 0 ? m.tl : null;
+            if (timeline) voiceNames = matchVoices(timeline.voiceprints || [], msg.voices);
+            emit({ type: 'speakers', count: m.tl.K });
+          })
       : Promise.resolve();
 
     // 2. speech workers take chunks from a shared queue
@@ -134,10 +161,22 @@ export function createCoordinator(spawn, emit) {
       while (sent < wins.length && results[sent] !== undefined) {
         const words = results[sent];
         if (words && words.length) {
-          const labelled = words.map(w => ({ ...w, spk: -1 }));
-          if (timeline) assignSpeakers(labelled, timeline);
+          let labelled = words.map(w => ({ ...w, spk: -1 }));
+          if (timeline) {
+            const before = labelled.length;
+            labelled = dropOutsideSpeech(labelled, (a, b) => anySpeech(timeline, a, b));
+            wordsDropped += before - labelled.length;
+            assignSpeakers(labelled, timeline);
+          }
           const chunks = groupSegments(labelled, !!timeline);
-          for (const c of chunks) if (c.speaker >= 0) { if (!order.has(c.speaker)) order.set(c.speaker, order.size); c.speaker = order.get(c.speaker); }
+          for (const c of chunks) if (c.speaker >= 0) {
+            if (!order.has(c.speaker)) {
+              order.set(c.speaker, order.size);
+              const vn = voiceNames[c.speaker];
+              if (vn) emit({ type: 'speaker-name', speaker: order.get(c.speaker), name: vn.name, sim: vn.sim });
+            }
+            c.speaker = order.get(c.speaker);
+          }
           if (chunks.length) emit({ type: 'segments', chunks });
         }
         sent++;
@@ -154,11 +193,11 @@ export function createCoordinator(spawn, emit) {
         const i = next++;
         if (i >= wins.length) return;
         const [s, e] = wins[i];
-        const slice = audio.slice(s, e);
+        const slice = clean.slice(s, e);
         let words = [];
         if (rms(slice, 0, slice.length) >= 0.0015 && !(timeline && !anySpeech(timeline, s / SR, e / SR))) {
           const m = await w.request({ type: 'chunk', i, audio: slice, offset: s / SR, segEnd: e / SR, language: msg.language });
-          words = m.words;
+          words = m.words; loopsFixed += m.loopFixed || 0; wordsDropped += m.dropped || 0;
         }
         if (myJob.cancelled) return;
         results[i] = words; finished++;
@@ -169,7 +208,10 @@ export function createCoordinator(spawn, emit) {
     await Promise.all([...pool.map(workerLoop), tlPromise]);
     if (myJob.cancelled) return;
     flush();
-    emit({ type: 'done', elapsed: performance.now() - t0, workers: cfg.workers, threads: cfg.threads });
+    // voice prints in display order, so names the user gives can be remembered for next time
+    const voiceprints = [];
+    if (timeline) for (const [c, d] of order) voiceprints[d] = timeline.voiceprints?.[c] ?? null;
+    emit({ type: 'done', elapsed: performance.now() - t0, workers: cfg.workers, threads: cfg.threads, loopsFixed, wordsDropped, voiceprints });
   }
 
   return {

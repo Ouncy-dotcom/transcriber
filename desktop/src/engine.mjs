@@ -4,6 +4,7 @@ import path from 'node:path';
 import { env, pipeline, AutoProcessor, AutoModel, AutoModelForAudioFrameClassification } from '@huggingface/transformers';
 import { diarize } from './diarize.js';
 import { cleanWords } from './words.js';
+import { makeConfidenceRecorder, attachConfidence, isLoop, collapseRepeats, compressionRatio, dropInvented, fixDriftedWords } from './quality.mjs';
 
 const MODELS = process.env.TRANSCRIBER_MODELS;
 const threads = Math.max(1, +process.env.TRANSCRIBER_THREADS || 1);
@@ -17,6 +18,9 @@ let transcriber = null, seg = null, emb = null;
 let port = null;
 const post = (type, data = {}) => port.postMessage({ type, ...data });
 
+let lastSequence = null;
+const conf = makeConfidenceRecorder();
+
 async function loadTranscriber() {
   if (transcriber) return;
   transcriber = await pipeline('automatic-speech-recognition', 'whisper-small_timestamped', {
@@ -24,6 +28,19 @@ async function loadTranscriber() {
     device: 'cpu',
     session_options,
   });
+  // keep the token ids of each run so word confidence can be matched to words
+  const generate = transcriber.model.generate.bind(transcriber.model);
+  transcriber.model.generate = async (args) => { const out = await generate(args); lastSequence = out.sequences ? out.sequences.tolist()[0] : null; return out; };
+}
+
+// One pass of Whisper over a chunk, returning clean words with confidence.
+async function transcribeOnce(audio, msg, extra = {}) {
+  conf.reset(); lastSequence = null;
+  const opts = { return_timestamps: 'word', task: 'transcribe', logits_processor: [conf.recorder], ...extra };
+  if (msg.language) opts.language = msg.language;
+  const out = await transcriber(audio, opts);
+  try { if (lastSequence) attachConfidence(out.chunks, lastSequence, conf.probs, transcriber.tokenizer); } catch {}
+  return fixDriftedWords(cleanWords(out.chunks, msg.offset, msg.segEnd));
 }
 
 async function loadSpeakerModels() {
@@ -49,13 +66,23 @@ async function handle(msg) {
       segment: seg, embed: emb, numSpeakers: +msg.speakers || 0,
       onProgress: (phase, done, total) => post('diar', { phase, done, total }),
     });
-    post('timeline', { tl: { K: tl.K, G: tl.G, active: tl.active, turns: tl.turns } });
+    post('timeline', { tl: { K: tl.K, G: tl.G, active: tl.active, turns: tl.turns, voiceprints: tl.voiceprints } });
   } else if (msg.type === 'chunk') {
     await loadTranscriber();
-    const opts = { return_timestamps: 'word', task: 'transcribe' };
-    if (msg.language) opts.language = msg.language;
-    const out = await transcriber(asF32(msg.audio), opts);
-    post('words', { i: msg.i, words: cleanWords(out.chunks, msg.offset, msg.segEnd).map(({ text, sp, start, end }) => ({ text, sp, start, end })) });
+    const audio = asF32(msg.audio);
+    let words = await transcribeOnce(audio, msg);
+    let fixed = 0;
+    if (isLoop(words)) {
+      // Whisper got stuck repeating itself: try again with settings that discourage repeats
+      const retry = await transcribeOnce(audio, msg, { no_repeat_ngram_size: 4, repetition_penalty: 1.15 });
+      const score = (w) => compressionRatio(w.map(x => x.text).join(' '));
+      if (retry.length && (!isLoop(retry) || score(retry) < score(words))) words = retry;
+      if (isLoop(words)) words = collapseRepeats(words);
+      fixed++;
+    }
+    const before = words.length;
+    words = dropInvented(words, audio, msg.offset);
+    post('words', { i: msg.i, loopFixed: fixed, dropped: before - words.length, words: words.map(({ text, sp, start, end, p }) => ({ text, sp, start, end, p })) });
   }
 }
 

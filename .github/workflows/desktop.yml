@@ -46,6 +46,9 @@ jobs:
       - name: Engine test (Windows, plain Node)
         run: node test/engine-test.mjs test/audio/interview-2-speakers.wav 0 2 "navy ordered me" "pocket model" "feet long"
 
+      - name: Mistake guard tests (loops, invented words, word timing)
+        run: node test/quality-test.mjs
+
       - name: Speed test on a longer recording (3.4 minutes)
         env:
           REPEAT: '6'

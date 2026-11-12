@@ -22,7 +22,7 @@ export function cleanWords(chunks, offset, segEnd) {
     if (s == null || !isFinite(s)) s = prevEnd;
     if (e == null || !isFinite(e) || e < s) e = s + 0.2;
     prevEnd = e;
-    words.push({ text: t, sp: /^\s/.test(raw) || words.length === 0, start: Math.min(segEnd, offset + s), end: Math.min(segEnd, offset + e), spk: -1 });
+    words.push({ text: t, sp: /^\s/.test(raw) || words.length === 0, start: Math.min(segEnd, offset + s), end: Math.min(segEnd, offset + e), spk: -1, p: c.p ?? null });
   }
   return words;
 }
@@ -76,9 +76,10 @@ export function groupSegments(words, perSentence = false) {
     const brk = cur && (w.spk !== cur.speaker
       || (cur.sentEnd && (perSentence || cur.end - cur.start >= 4 || cur.n >= 12 || w.start - cur.end > 0.9))
       || cur.n >= 70);
-    if (!cur || brk) { cur = { start: w.start, end: w.end, text: w.text, speaker: w.spk, n: 1 }; segs.push(cur); }
+    if (!cur || brk) { cur = { start: w.start, end: w.end, text: w.text, speaker: w.spk, n: 1, words: [] }; segs.push(cur); }
     else { cur.text += (w.sp ? ' ' : '') + w.text; cur.end = Math.max(cur.end, w.end); cur.n++; }
+    cur.words.push({ t: w.text, sp: cur.words.length > 0 && w.sp, s: +w.start.toFixed(2), p: w.p == null ? null : +w.p.toFixed(3) });
     cur.sentEnd = SENT_END.test(w.text);
   }
-  return segs.map(({ start, end, text, speaker }) => ({ start, end, text, speaker }));
+  return segs.map(({ start, end, text, speaker, words }) => ({ start, end, text, speaker, words }));
 }

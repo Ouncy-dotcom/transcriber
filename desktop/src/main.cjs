@@ -1,10 +1,13 @@
 // Electron main process: opens the window and runs transcription in background worker processes.
-const { app, BrowserWindow, ipcMain, utilityProcess, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, utilityProcess, shell, Menu, dialog } = require('electron');
+const { createStore, buildDocx } = require('./store.cjs');
 const path = require('node:path');
 const fs = require('node:fs');
 
 const MODELS = app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(__dirname, '..', 'models');
-let win = null, coordinator = null;
+let win = null, coordinator = null, store = null;
+// tests can point the app at a throwaway data folder
+if (process.env.TRANSCRIBER_DATA) app.setPath('userData', process.env.TRANSCRIBER_DATA);
 
 const send = (m) => { if (win && !win.isDestroyed()) win.webContents.send('engine', m); };
 
@@ -32,7 +35,45 @@ async function getCoordinator() {
   return coordinator;
 }
 
-ipcMain.handle('run', async (_e, msg) => { const c = await getCoordinator(); c.start(msg); return true; });
+ipcMain.handle('run', async (_e, msg) => {
+  const c = await getCoordinator();
+  msg.voices = store.listVoices();      // so saved voices can be recognised
+  c.start(msg);
+  return true;
+});
+
+// recent transcripts and saved voices
+ipcMain.handle('store', async (_e, op, ...args) => {
+  const ops = ['listTranscripts', 'getTranscript', 'saveTranscript', 'deleteTranscript', 'listVoices', 'saveVoice', 'deleteVoice', 'renameVoice'];
+  if (!ops.includes(op)) throw new Error('unknown store op');
+  return store[op](...args);
+});
+
+// the original recording, for playback when a saved transcript is reopened
+const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm|mp4|m4v|mov|mkv|wma|amr|3gp|aif|aiff|caf)$/i;
+ipcMain.handle('read-audio', async (_e, p) => {
+  if (typeof p !== 'string' || !AUDIO_EXT.test(p) || !fs.existsSync(p)) return null;
+  const b = fs.readFileSync(p);
+  return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+});
+
+ipcMain.handle('save-docx', async (_e, data) => {
+  const buf = await buildDocx(data);
+  let file = process.env.TRANSCRIBER_SAVE_PATH;
+  if (!file) {
+    const r = await dialog.showSaveDialog(win, { title: 'Save as Word document', defaultPath: (data.title || 'Transcript').replace(/[\\/:*?"<>|]/g, '') + '.docx', filters: [{ name: 'Word document', extensions: ['docx'] }] });
+    if (r.canceled || !r.filePath) return null;
+    file = r.filePath;
+  }
+  fs.writeFileSync(file, buf);
+  return file;
+});
+
+ipcMain.handle('find', async (_e, text, opts) => {
+  if (!win) return;
+  if (!text) { win.webContents.stopFindInPage('clearSelection'); return; }
+  win.webContents.findInPage(text, opts || {});
+});
 ipcMain.handle('cancel', async () => { const c = await getCoordinator(); c.cancel(); return true; });
 ipcMain.handle('open-external', async (_e, url) => { if (/^https:\/\//.test(url)) await shell.openExternal(url); });
 
@@ -47,6 +88,7 @@ function createWindow() {
   });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.on('found-in-page', (_e, r) => send({ type: 'found', matches: r.matches, active: r.activeMatchOrdinal }));
   win.loadFile(path.join(__dirname, 'index.html'));
 }
 
@@ -55,6 +97,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(async () => {
+    store = createStore(app.getPath('userData'));
     if (!fs.existsSync(MODELS)) console.error('Models folder missing: ' + MODELS);
     createWindow();
     (await getCoordinator()).warmUp();   // load the speech model in the background so the first run starts sooner

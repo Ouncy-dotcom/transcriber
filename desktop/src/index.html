@@ -10,6 +10,7 @@
 :root{--bg:#f6f4ef;--card:#fff;--ink:#1c1b19;--mute:#6d6a63;--line:#e2ded5;--acc:#c2410c;--acc2:#9a3412;--soft:#fbf1ea;--l:36%}
 @media (prefers-color-scheme:dark){:root{--bg:#161513;--card:#201f1c;--ink:#f0ede6;--mute:#a09c93;--line:#34322d;--acc:#f97316;--acc2:#fb923c;--soft:#2b221b;--l:70%}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:860px;margin:0 auto;padding:28px 18px 60px;position:relative}
 h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
@@ -36,8 +37,9 @@ audio{width:100%;margin-top:10px}
 #bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
 #status{font-size:13px;color:var(--mute);margin-top:8px;min-height:20px}
 #status.err{color:#dc2626}
-.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.tools .grow{font-size:13px;color:var(--mute)}
+.tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.tools button{padding:7px 12px;font-size:14px}
+#count{font-size:13px;color:var(--mute);margin:0 0 10px}
 #out{min-height:160px;max-height:62vh;overflow:auto;font-size:16px;line-height:1.65}
 #out:empty::before{content:"Your transcript will appear here.";color:var(--mute)}
 .turn{margin-bottom:10px}
@@ -63,12 +65,44 @@ audio{width:100%;margin-top:10px}
 #pop .opts button{color:hsl(var(--h) 70% var(--l));font-weight:600}
 #pop .opts button.new{color:var(--mute);font-weight:400}
 .hint{font-size:12px;color:var(--mute);margin:10px 0 0}
+
+.top{display:flex;align-items:flex-end;gap:12px}
+.top .grow p{margin:0}
+.seg p .w.unsure{text-decoration:underline wavy #d97706;text-decoration-thickness:1.5px;text-underline-offset:3px;cursor:help}
+.seg p .w.cur{background:#fde68a;border-radius:3px;color:#1c1b19}
+::highlight(find){background:#fde68a;color:#1c1b19}
+::highlight(findcur){background:#fb923c;color:#1c1b19}
+#findbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-4px 0 12px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
+#findbar input{padding:6px 8px;min-width:0;flex:1 1 140px}
+#findbar button{padding:6px 10px;font-size:14px}
+#findbar .n{font-size:12px;color:var(--mute);min-width:64px;text-align:center}
+#recent .item{display:flex;align-items:center;gap:10px;padding:8px 6px;border-top:1px solid var(--line)}
+#recent .item:first-of-type{border-top:0}
+#recent .item .t{flex:1;min-width:0}
+#recent .item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px}
+#recent .item .t span{font-size:12px;color:var(--mute)}
+#recent .item button{padding:5px 10px;font-size:13px}
+#recent .item button.del{color:var(--mute)}
+#recent .item button.del.sure{color:#fff;background:#dc2626;border-color:#dc2626}
+#recent h3,.cardh{margin:0 0 8px;font-size:15px}
+#recent .more{font-size:13px;color:var(--mute);margin-top:6px}
+.linkish{background:none;border:0;padding:0;color:var(--acc);font-size:12px;cursor:pointer;text-decoration:underline}
+.who .rec{font-weight:400;font-size:11px;color:var(--mute);margin-left:6px}
+#voicesPop .v{display:flex;align-items:center;gap:8px;padding:4px 0}
+#voicesPop .v span{flex:1}
+#check{border-color:#d97706}
 </style>
 </head>
 <body>
 <main>
-<h1>Transcriber</h1>
-<p class="sub">Turns audio recordings into text and labels who is speaking. Everything runs on this computer, so recordings never leave it, and it works offline.</p>
+<div class="top"><div class="grow"><h1>Transcriber</h1>
+<p class="sub">Turns audio recordings into text and labels who is speaking. Everything runs on this computer, so recordings never leave it, and it works offline.</p></div></div>
+
+<div class="card" id="recent" hidden>
+  <h3>Recent transcripts</h3>
+  <div id="recentList"></div>
+  <div class="more" id="recentMore" hidden><button class="linkish" id="showAll">Show all</button></div>
+</div>
 
 <div class="card">
   <div id="drop"><b>Drop an audio or video file here</b><span>or click to choose. MP3, WAV, M4A, OGG, WEBM, MP4 and more</span></div>
@@ -92,7 +126,7 @@ audio{width:100%;margin-top:10px}
         <option value="chinese">Chinese</option>
         <option value="japanese">Japanese</option>
       </select></div>
-    <div><label for="spk">Speakers</label>
+    <div><label for="spk">Speakers <button class="linkish" id="voicesBtn" hidden></button></label>
       <select id="spk">
         <option value="auto">Detect automatically</option>
         <option value="2">2 speakers</option>
@@ -113,43 +147,60 @@ audio{width:100%;margin-top:10px}
 </div>
 
 <div class="card">
+  <div id="count"></div>
   <div class="tools">
-    <div class="grow" id="count"></div>
+    <button id="check" hidden title="Jump to the next word the app wasn't sure about">Next to check</button>
+    <button id="findBtn" disabled title="Find and replace (Ctrl+F)">Find</button>
     <button id="toggle" disabled>Hide timestamps</button>
     <button id="copy" disabled>Copy</button>
     <button id="txt" disabled>Save .txt</button>
     <button id="srt" disabled>Save .srt</button>
+    <button id="docx" disabled>Save Word</button>
+  </div>
+  <div id="findbar" hidden>
+    <input type="text" id="findIn" placeholder="Find" spellcheck="false">
+    <input type="text" id="replIn" placeholder="Replace with" spellcheck="false">
+    <span class="n" id="findN"></span>
+    <button id="findPrev" title="Previous (Shift+Enter)">&#8593;</button>
+    <button id="findNext" title="Next (Enter)">&#8595;</button>
+    <button id="replOne">Replace</button>
+    <button id="replAll">Replace all</button>
+    <button id="findClose" title="Close (Esc)">&#10005;</button>
   </div>
   <div id="out"></div>
-  <p class="hint" id="hint" hidden>Speaker labels are a best guess. Click a name to rename it, or the dot beside a line to change who said it. If you know how many people are talking, choosing that number above gives better results.</p>
+  <p class="hint" id="hint" hidden>Speaker labels are a best guess. Click a name to rename it, or the dot beside a line to change who said it. Names you give are remembered, so the app can recognise those voices in future recordings.</p>
+  <p class="hint" id="hintUnsure" hidden>Words with a wavy underline are ones the app wasn't sure about. Use "Next to check" to jump through them; click a word to fix it.</p>
 </div>
 <div id="pop" hidden></div>
 </main>
-
 <script>
 const $ = id => document.getElementById(id);
 const drop=$('drop'), pick=$('pick'), go=$('go'), cancel=$('cancel'), out=$('out'), statusEl=$('status'), bar=$('bar'), player=$('player'), pop=$('pop');
 const HUES=[18,215,140,285,45,330,180,95,250,0];
-let transcribing=false, loadParts={}, file=null, worker=null, segs=[], names=[], labelsOn=false, busy=false, downloads=null, baseName='transcript', audioDur=0, lastTurn=null, lastSpk=null;
+const UNSURE=0.5;   // measured: at this level about half of underlined words really are wrong
+let transcribing=false, file=null, filePath=null, segs=[], names=[], userNamed=[], recognised=[], voiceprints=[], labelsOn=false, busy=false, baseName='transcript', audioDur=0, lastTurn=null, lastSpk=null;
+let cur=null;   // the transcript being shown: {id, title, created, duration, filePath}
+const api=window.engine;
 
 function setStatus(t, err){ statusEl.textContent=t||''; statusEl.className=err?'err':''; }
 function setBar(f){ bar.style.display = f==null?'none':'block'; if(f!=null) bar.firstElementChild.style.width=Math.round(Math.min(1,f)*100)+'%'; }
-const fmt = s => { s=Math.max(0,s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=Math.floor(s%60); return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0'); };
+const fmt = s => { s=Math.max(0,s||0); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=Math.floor(s%60); return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0'); };
 const fmtSrt = s => { const ms=Math.round(s*1000); const p=(n,l=2)=>String(n).padStart(l,'0'); return p(Math.floor(ms/3600000))+':'+p(Math.floor(ms%3600000/60000))+':'+p(Math.floor(ms%60000/1000))+','+p(ms%1000,3); };
 const dur = ms => { const s=Math.round(ms/1000); return s<60? s+' sec' : Math.floor(s/60)+' min '+(s%60)+' sec'; };
 const hue = k => HUES[k%HUES.length];
 const nameOf = k => names[k] || ('Speaker '+(k+1));
+const isDefault = n => !n || /^Speaker \d+$/.test(n);
 const spkOf = s => labelsOn && s.speaker>=0 ? s.speaker : -1;
 
-function setFile(f){
+function setFile(f, path){
   if(!f||busy) return;
-  file=f; baseName=f.name.replace(/\.[^.]+$/,'')||'transcript';
+  file=f; filePath=path!==undefined?path:(api.pathOf(f)||null); baseName=f.name.replace(/\.[^.]+$/,'')||'transcript';
   $('file').innerHTML='<b></b> · '+(f.size/1048576).toFixed(1)+' MB'; $('file').firstChild.textContent=f.name;
   try{ if(player.src) URL.revokeObjectURL(player.src); player.src=URL.createObjectURL(f); player.hidden=false; }catch{}
   go.disabled=false; setStatus('');
 }
 drop.onclick=()=>pick.click();
-pick.onchange=()=>setFile(pick.files[0]);
+pick.onchange=()=>{ setFile(pick.files[0]); pick.value=''; };
 ['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
 drop.addEventListener('drop',ev=>setFile(ev.dataTransfer.files[0]));
@@ -169,12 +220,26 @@ async function decode(f){
 }
 
 // ---------- transcript rendering ----------
+function play(t){ try{ player.currentTime=Math.max(0,t); player.play(); }catch{} }
+function fillLine(p,s){
+  p.textContent='';
+  // word by word, so unsure words can be underlined; must give exactly the same text as s.text
+  if(s.words && s.words.length && s.words.map((w,i)=>(i&&w.sp?' ':'')+w.t).join('')===s.text){
+    s.words.forEach((w,i)=>{
+      if(i&&w.sp) p.append(' ');
+      const sp=document.createElement('span'); sp.className='w'; sp.textContent=w.t; sp.dataset.s=w.s;
+      if(w.p!=null && w.p<UNSURE){ sp.classList.add('unsure'); sp.title='Not sure about this word. Worth checking.'; }
+      p.append(sp);
+    });
+  } else p.textContent=s.text;
+}
 function appendSeg(i){
   const s=segs[i], k=spkOf(s);
   if(!lastTurn || lastSpk!==k){
     lastTurn=document.createElement('div'); lastTurn.className='turn'; lastSpk=k;
     if(k>=0){
       const b=document.createElement('button'); b.className='who'; b.style.setProperty('--h',hue(k)); b.textContent=nameOf(k); b.title='Rename or change speaker';
+      if(recognised[k]&&!userNamed[k]){ const r=document.createElement('span'); r.className='rec'; r.textContent='recognised voice'; b.append(r); }
       const first=i; b.onclick=ev=>{ ev.stopPropagation(); const idx=[]; for(let j=first;j<segs.length&&spkOf(segs[j])===k;j++) idx.push(j); openPop(b,k,idx,true); };
       lastTurn.append(b);
     }
@@ -182,31 +247,61 @@ function appendSeg(i){
   }
   const d=document.createElement('div'); d.className='seg'; d.dataset.i=i;
   const t=document.createElement('time'); t.textContent=fmt(s.start); t.title='Play from here';
-  t.onclick=()=>{ try{ player.currentTime=s.start; player.play(); }catch{} };
+  t.onclick=()=>play(s.start);
   d.append(t);
   if(k>=0){ const dot=document.createElement('button'); dot.className='dot'; dot.style.setProperty('--h',hue(k)); dot.title='Change who said this line'; dot.onclick=ev=>{ ev.stopPropagation(); openPop(dot,k,[i],false); }; d.append(dot); }
-  const p=document.createElement('p'); p.textContent=s.text; p.contentEditable='true'; p.spellcheck=true;
-  p.oninput=()=>{ s.text=p.textContent.trim(); count(); };
+  const p=document.createElement('p'); p.contentEditable='true'; p.spellcheck=true; fillLine(p,s);
+  p.oninput=()=>{
+    s.text=p.textContent.replace(/\s+/g,' ').trim(); s.words=null;
+    const sel=getSelection(); const w=sel&&sel.anchorNode&&(sel.anchorNode.nodeType===1?sel.anchorNode:sel.anchorNode.parentElement);
+    if(w&&w.classList&&w.classList.contains('unsure')){ w.classList.remove('unsure'); w.removeAttribute('title'); }
+    count(); changed();
+  };
   d.append(p); lastTurn.append(d);
 }
-function renderAll(){ const top=out.scrollTop; out.textContent=''; lastTurn=null; lastSpk=null; for(let i=0;i<segs.length;i++) appendSeg(i); out.scrollTop=top; count(); }
+function renderAll(){ const top=out.scrollTop; out.textContent=''; lastTurn=null; lastSpk=null; for(let i=0;i<segs.length;i++) appendSeg(i); out.scrollTop=top; count(); refreshFind(); }
 function addSegs(list){
   const stick=out.scrollTop+out.clientHeight>=out.scrollHeight-40;
   for(const c of list){ while(c.speaker>=names.length) names.push('Speaker '+(names.length+1)); segs.push(c); appendSeg(segs.length-1); }
   if(stick) out.scrollTop=out.scrollHeight; count();
 }
-function count(){ const w=segs.map(s=>s.text).join(' ').split(/\s+/).filter(Boolean).length; $('count').textContent=w? w.toLocaleString()+' words'+(labelsOn?' · '+new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size+' speakers':'') : ''; }
+function count(){
+  const w=segs.map(s=>s.text).join(' ').split(/\s+/).filter(Boolean).length;
+  const n=out.querySelectorAll('.w.unsure').length;
+  $('count').textContent=w? w.toLocaleString()+' words'+(labelsOn?' · '+new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size+' speakers':'')+(n?' · '+n+' to check':'') : '';
+  $('check').hidden=!n||busy; $('hintUnsure').hidden=!n||busy;
+}
+
+// ---------- jump through unsure words ----------
+let lastChecked=null;
+$('check').onclick=()=>{
+  const all=[...out.querySelectorAll('.w.unsure')]; if(!all.length) return;
+  let i=lastChecked?all.findIndex(x=>lastChecked.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING):0;
+  if(i<0) i=0;
+  const w=all[i]; out.querySelectorAll('.w.cur').forEach(x=>x.classList.remove('cur'));
+  w.classList.add('cur'); lastChecked=w;
+  w.scrollIntoView({block:'center',behavior:'smooth'});
+  const r=document.createRange(); r.selectNodeContents(w); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  w.closest('p').focus({preventScroll:true});
+  play(+w.dataset.s-1.5);
+};
+out.addEventListener('focusout',()=>out.querySelectorAll('.w.cur').forEach(x=>x.classList.remove('cur')));
 
 // ---------- speaker popover ----------
-function closePop(){ pop.hidden=true; pop.textContent=''; }
+function closePop(){ pop.hidden=true; pop.textContent=''; pop.id='pop'; }
+function setName(k,v){
+  names[k]=v; userNamed[k]=!isDefault(v); recognised[k]=false;
+  if(userNamed[k] && voiceprints[k]) api.store('saveVoice', v, voiceprints[k]).then(refreshVoices);
+  renderAll(); changed();
+}
 function openPop(anchor,k,idx,turn){
-  pop.textContent='';
+  pop.textContent=''; pop.id='pop';
   const h=document.createElement('h4'); h.textContent=turn?'Rename this speaker everywhere':'Who said this line?'; pop.append(h);
   if(turn){
     const r=document.createElement('div'); r.className='r';
     const inp=document.createElement('input'); inp.type='text'; inp.value=nameOf(k); inp.maxLength=40;
     const ok=document.createElement('button'); ok.textContent='Rename';
-    const apply=()=>{ const v=inp.value.trim(); if(v){ names[k]=v; renderAll(); } closePop(); };
+    const apply=()=>{ const v=inp.value.trim(); if(v) setName(k,v); closePop(); };
     ok.onclick=apply; inp.onkeydown=e=>{ if(e.key==='Enter') apply(); if(e.key==='Escape') closePop(); };
     r.append(inp,ok); pop.append(r);
     const h2=document.createElement('h4'); h2.textContent=idx.length>1?'Or these '+idx.length+' lines were said by':'Or this line was said by'; pop.append(h2);
@@ -216,36 +311,174 @@ function openPop(anchor,k,idx,turn){
   for(let c=0;c<names.length;c++){
     if(c===k) continue;
     const b=document.createElement('button'); b.textContent=nameOf(c); b.style.setProperty('--h',hue(c));
-    b.onclick=()=>{ for(const i of idx) segs[i].speaker=c; renderAll(); closePop(); };
+    b.onclick=()=>{ for(const i of idx) segs[i].speaker=c; renderAll(); closePop(); changed(); };
     o.append(b);
   }
   const nb=document.createElement('button'); nb.className='new'; nb.textContent='+ New speaker';
-  nb.onclick=()=>{ names.push('Speaker '+(names.length+1)); const c=names.length-1; for(const i of idx) segs[i].speaker=c; renderAll(); closePop(); };
+  nb.onclick=()=>{ names.push('Speaker '+(names.length+1)); const c=names.length-1; for(const i of idx) segs[i].speaker=c; renderAll(); closePop(); changed(); };
   o.append(nb); pop.append(o);
+  showPop(anchor);
+}
+function showPop(anchor){
   pop.hidden=false;
   const m=document.querySelector('main').getBoundingClientRect(), a=anchor.getBoundingClientRect();
   pop.style.left=Math.max(8,Math.min(a.left-m.left, m.width-270))+'px';
   pop.style.top=(a.bottom-m.top+6)+'px';
 }
 document.addEventListener('click',e=>{ if(!pop.hidden && !pop.contains(e.target)) closePop(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closePop(); });
+
+// ---------- saved voices ----------
+let savedVoices=[];
+async function refreshVoices(){
+  savedVoices=await api.store('listVoices');
+  $('voicesBtn').hidden=!savedVoices.length;
+  $('voicesBtn').textContent='saved voices ('+savedVoices.length+')';
+}
+$('voicesBtn').onclick=ev=>{
+  ev.preventDefault(); ev.stopPropagation();
+  pop.textContent=''; pop.id='voicesPop';
+  const h=document.createElement('h4'); h.textContent='Voices the app recognises'; pop.append(h);
+  for(const v of savedVoices){
+    const r=document.createElement('div'); r.className='v';
+    const n=document.createElement('span'); n.textContent=v.name;
+    const del=document.createElement('button'); del.textContent='Forget';
+    del.onclick=async e=>{ e.stopPropagation(); await api.store('deleteVoice', v.name); await refreshVoices(); if(savedVoices.length) $('voicesBtn').click(); else closePop(); };
+    r.append(n,del); pop.append(r);
+  }
+  const p=document.createElement('p'); p.className='hint'; p.textContent='A voice is saved when you rename a speaker. Renaming the same person again in another recording makes recognition more reliable.'; pop.append(p);
+  showPop($('voicesBtn'));
+};
+
+// ---------- find and replace ----------
+const hasHL=typeof Highlight!=='undefined' && CSS.highlights;
+let matches=[], mi=-1;
+function textNodesOf(p){ const w=document.createTreeWalker(p,NodeFilter.SHOW_TEXT); const a=[]; let n; while((n=w.nextNode())) a.push(n); return a; }
+function rangeAt(p,a,b){
+  const r=document.createRange(); let pos=0, sa=false;
+  for(const n of textNodesOf(p)){ const L=n.nodeValue.length;
+    if(!sa && a<=pos+L){ r.setStart(n,a-pos); sa=true; }
+    if(sa && b<=pos+L){ r.setEnd(n,b-pos); return r; }
+    pos+=L; }
+  return null;
+}
+function refreshFind(keep){
+  matches=[]; const q=$('findIn').value;
+  if(hasHL){ CSS.highlights.delete('find'); CSS.highlights.delete('findcur'); }
+  if($('findbar').hidden || !q){ $('findN').textContent=''; mi=-1; return; }
+  const ql=q.toLowerCase();
+  out.querySelectorAll('.seg p').forEach(p=>{
+    const i=+p.parentElement.dataset.i, t=p.textContent.toLowerCase(); let at=0;
+    while((at=t.indexOf(ql,at))>=0){ const r=rangeAt(p,at,at+q.length); if(r) matches.push({i,a:at,b:at+q.length,r,p}); at+=Math.max(1,q.length); }
+  });
+  if(!keep || mi>=matches.length) mi=matches.length?0:-1;
+  showMatch(false);
+}
+function showMatch(scroll){
+  $('findN').textContent=matches.length?(mi+1)+' of '+matches.length:'no matches';
+  if(!hasHL) return;
+  CSS.highlights.set('find',new Highlight(...matches.map(m=>m.r)));
+  if(mi>=0&&matches[mi]){ CSS.highlights.set('findcur',new Highlight(matches[mi].r)); if(scroll) matches[mi].p.scrollIntoView({block:'center'}); }
+}
+function step(d){ if(!matches.length) return; mi=(mi+d+matches.length)%matches.length; showMatch(true); }
+function openFind(){ if(!segs.length) return; $('findbar').hidden=false; const sel=String(getSelection()||'').trim(); if(sel&&sel.length<60&&!sel.includes('\n')) $('findIn').value=sel; $('findIn').focus(); $('findIn').select(); refreshFind(); }
+function closeFind(){ $('findbar').hidden=true; refreshFind(); }
+$('findBtn').onclick=openFind; $('findClose').onclick=closeFind;
+$('findIn').oninput=()=>refreshFind();
+$('findIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); step(e.shiftKey?-1:1); } if(e.key==='Escape') closeFind(); };
+$('replIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); $('replOne').click(); } if(e.key==='Escape') closeFind(); };
+$('findNext').onclick=()=>step(1); $('findPrev').onclick=()=>step(-1);
+const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+$('replOne').onclick=()=>{
+  const m=matches[mi]; if(!m) return; const s=segs[m.i];
+  s.text=(s.text.slice(0,m.a)+$('replIn').value+s.text.slice(m.b)).replace(/\s+/g,' ').trim(); s.words=null;
+  renderAll(); refreshFind(true); showMatch(true); changed();
+};
+$('replAll').onclick=()=>{
+  const q=$('findIn').value; if(!q) return; const re=new RegExp(esc(q),'gi'); let n=0;
+  for(const s of segs){ const t=s.text.replace(re,()=>{ n++; return $('replIn').value; }).replace(/\s+/g,' ').trim(); if(t!==s.text){ s.text=t; s.words=null; } }
+  renderAll(); setStatus(n?'Replaced '+n+(n===1?' match.':' matches.'):'Nothing to replace.'); changed();
+};
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){ e.preventDefault(); openFind(); }
+  if(e.key==='Escape'){ closePop(); if(!$('findbar').hidden) closeFind(); }
+});
 
 // ---------- export ----------
 const clean = t => t.replace(/\s+/g,' ').trim();
-function turns(){ const r=[]; for(const s of segs){ if(!s.text) continue; const k=spkOf(s); const l=r[r.length-1]; if(l&&l.k===k) l.text+=' '+s.text; else r.push({k,text:s.text}); } return r; }
+function turns(){ const r=[]; for(const s of segs){ if(!s.text) continue; const k=spkOf(s); const l=r[r.length-1]; if(l&&l.k===k) l.text+=' '+s.text; else r.push({k,text:s.text,start:s.start}); } return r; }
 const plainText = () => turns().map(t=>(t.k>=0?nameOf(t.k)+': ':'')+clean(t.text)).join('\n\n');
 const stampedText = () => segs.filter(s=>s.text).map(s=>'['+fmt(s.start)+'] '+(spkOf(s)>=0?nameOf(spkOf(s))+': ':'')+clean(s.text)).join('\n');
 const srtText = () => segs.filter(s=>s.text).map((s,i)=>(i+1)+'\n'+fmtSrt(s.start)+' --> '+fmtSrt(Math.max(s.end,s.start+0.5))+'\n'+(spkOf(s)>=0?nameOf(spkOf(s))+': ':'')+clean(s.text)+'\n').join('\n');
-function enableOut(on){ ['toggle','copy','txt','srt'].forEach(id=>$(id).disabled=!on); }
+function enableOut(on){ ['toggle','copy','txt','srt','docx','findBtn'].forEach(id=>$(id).disabled=!on); }
+const titleNow = () => (cur&&cur.title)||baseName;
 
 player.ontimeupdate=()=>{ const t=player.currentTime; out.querySelectorAll('.seg').forEach(d=>{ const s=segs[d.dataset.i]; d.classList.toggle('on', !!s && t>=s.start && t<s.end); }); };
 
+// ---------- saving and recent transcripts ----------
+let saveTimer=null;
+function snapshot(){ return { ...cur, names:[...names], labelsOn, segs:segs.map(s=>({start:s.start,end:s.end,text:s.text,speaker:s.speaker,words:s.words||null})), voiceprints, userNamed:[...userNamed], recognised:[...recognised] }; }
+function changed(){ if(!cur||busy) return; clearTimeout(saveTimer); saveTimer=setTimeout(saveNow,700); }
+async function saveNow(){ clearTimeout(saveTimer); if(!cur) return; try{ await api.store('saveTranscript', snapshot()); }catch(e){ setStatus('Could not save this transcript: '+(e.message||e),true); } refreshRecent(); }
+window.addEventListener('beforeunload',()=>{ if(saveTimer) saveNow(); });
+
+let showAllRecent=false;
+async function refreshRecent(){
+  const list=await api.store('listTranscripts');
+  $('recent').hidden=!list.length;
+  const box=$('recentList'); box.textContent='';
+  const shown=showAllRecent?list:list.slice(0,5);
+  for(const t of shown){
+    const r=document.createElement('div'); r.className='item'; r.dataset.id=t.id;
+    const info=document.createElement('div'); info.className='t';
+    const b=document.createElement('b'); b.textContent=t.title||'Transcript';
+    const sp=document.createElement('span');
+    const when=new Date(t.created||t.updated).toLocaleString('en-ZA',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+    const who=t.names&&t.speakers?t.names.slice(0,4).filter(Boolean).join(', '):'';
+    sp.textContent=[when, fmt(t.duration), t.words.toLocaleString()+' words', who].filter(Boolean).join(' · ');
+    info.append(b,sp);
+    const open=document.createElement('button'); open.textContent=cur&&cur.id===t.id?'Showing':'Open'; open.disabled=busy||(cur&&cur.id===t.id);
+    open.onclick=()=>openTranscript(t.id);
+    const del=document.createElement('button'); del.className='del'; del.textContent='Delete';
+    del.onclick=async e=>{
+      e.stopPropagation();
+      if(!del.classList.contains('sure')){ del.classList.add('sure'); del.textContent='Delete?'; setTimeout(()=>{ del.classList.remove('sure'); del.textContent='Delete'; },3000); return; }
+      await api.store('deleteTranscript', t.id);
+      if(cur&&cur.id===t.id){ cur=null; segs=[]; names=[]; renderAll(); enableOut(false); }
+      refreshRecent();
+    };
+    r.append(info,open,del); box.append(r);
+  }
+  $('recentMore').hidden=list.length<=5||showAllRecent;
+}
+$('showAll').onclick=()=>{ showAllRecent=true; refreshRecent(); };
+
+async function openTranscript(id){
+  if(busy) return;
+  if(saveTimer) await saveNow();
+  const t=await api.store('getTranscript', id); if(!t) { refreshRecent(); return; }
+  cur={id:t.id,title:t.title,created:t.created,duration:t.duration,filePath:t.filePath};
+  segs=t.segs||[]; names=t.names||[]; labelsOn=!!t.labelsOn; voiceprints=t.voiceprints||[]; userNamed=t.userNamed||[]; recognised=t.recognised||[];
+  baseName=t.title||'transcript'; audioDur=t.duration||0;
+  closeFind(); renderAll(); enableOut(segs.length>0); $('hint').hidden=!(labelsOn&&segs.length);
+  out.scrollTop=0;
+  // the original recording, if it's still where it was
+  file=null; filePath=t.filePath||null; go.disabled=true; player.hidden=true; $('file').textContent='';
+  if(filePath){
+    const bytes=await api.readAudio(filePath);
+    if(bytes){ const f=new File([bytes], filePath.split(/[\\/]/).pop()); setFile(f, filePath); setStatus('Opened. The original recording is loaded, so you can play it or transcribe it again.'); }
+    else setStatus('Opened. The original recording was moved or deleted, so playback is not available.');
+  } else setStatus('Opened.');
+  refreshRecent();
+}
+
 // ---------- run ----------
-function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; setBar(null); setStatus(msg,err); enableOut(segs.length>0); $('hint').hidden=!(labelsOn&&segs.length); }
+function finish(msg, err){ busy=false; go.disabled=!file; cancel.hidden=true; setBar(null); setStatus(msg,err); enableOut(segs.length>0); $('hint').hidden=!(labelsOn&&segs.length); count(); refreshRecent(); }
 
 go.onclick=async()=>{
   if(!file||busy) return;
-  transcribing=false; busy=true; go.disabled=true; cancel.hidden=false; segs=[]; names=[]; labelsOn=false; closePop(); renderAll(); enableOut(false); $('hint').hidden=true;
+  if(saveTimer) await saveNow();
+  transcribing=false; busy=true; go.disabled=true; cancel.hidden=false; segs=[]; names=[]; userNamed=[]; recognised=[]; voiceprints=[]; labelsOn=false; cur=null;
+  closePop(); closeFind(); renderAll(); enableOut(false); $('hint').hidden=true; refreshRecent();
   setStatus('Reading audio…'); setBar(0);
   let audio;
   try{ audio=await decode(file); }
@@ -253,47 +486,60 @@ go.onclick=async()=>{
   if(!busy) return;
   audioDur=audio.length/16000;
   setStatus('Starting…');
-  try{ await window.engine.run({type:'run',audio,model:'whisper-small',language:$('lang').value||null,speakers:$('spk').value==='auto'?'0':$('spk').value}); }
+  try{ await api.run({type:'run',audio,language:$('lang').value||null,speakers:$('spk').value==='auto'?'0':$('spk').value}); }
   catch(e){ finish('Could not start the transcription engine. '+(e.message||''),true); }
 };
-cancel.onclick=()=>{ window.engine.cancel(); finish(segs.length?'Stopped. Partial transcript below.':'Stopped.'); };
-window.engine.onMessage(m=>{ if(busy) onMsg({data:m}); });
+cancel.onclick=()=>{ api.cancel(); finish(segs.length?'Stopped. Partial transcript below (not saved).':'Stopped.'); };
+api.onMessage(m=>{ if(busy) onMsg(m); });
 
-function onMsg(e){
-  const m=e.data;
-  if(m.type==='load'){
-    if(m.label==='encoder'||m.label==='decoder'){ loadParts[m.label]=[m.done,m.total]; const a=loadParts.encoder||[0,7], b=loadParts.decoder||[0,11]; setStatus('Loading speech model…'); setBar((a[0]+b[0])/(a[1]+b[1])); }
-    else { setStatus('Loading '+(m.label==='engine'?'engine':'speaker model')+'…'); setBar(m.done/m.total); }
-  }
-  else if(m.type==='status'){ if(!transcribing){ setStatus(m.text); setBar(0); } }
+async function onMsg(m){
+  if(m.type==='status'){ if(!transcribing){ setStatus(m.text); setBar(0); } }
   else if(m.type==='diar'){ if(!transcribing){ setStatus('Working out who is speaking… step '+(m.phase==='listen'?1:2)+' of 2'); setBar(m.done/m.total); } }
   else if(m.type==='speakers'){ labelsOn=m.count>=2; names=[]; }
+  else if(m.type==='speaker-name'){ while(names.length<=m.speaker) names.push('Speaker '+(names.length+1)); names[m.speaker]=m.name; recognised[m.speaker]=true; }
   else if(m.type==='segments'){ addSegs(m.chunks); }
   else if(m.type==='progress'){ transcribing=true; const f=m.done/m.total; setBar(f); const left=m.elapsed/f-m.elapsed; setStatus('Transcribing… '+Math.round(f*100)+'%'+(m.done<m.total&&m.done>1?' · about '+dur(left)+' left':'')); }
   else if(m.type==='done'){
     const sp=$('spk').value, heard=new Set(segs.map(s=>s.speaker).filter(k=>k>=0)).size;
-    if(labelsOn&&heard<2){ labelsOn=false; renderAll(); }
-    const who=sp==='off'||!segs.length?'':(labelsOn?' Found '+heard+' speakers.':' Only one speaker was found, so lines are not labelled.');
-    finish(segs.length?'Done in '+dur(m.elapsed)+' ('+fmt(audioDur)+' of audio).'+who:'No speech was found in this recording.');
+    if(labelsOn&&heard<2){ labelsOn=false; }
+    voiceprints=m.voiceprints||[];
+    // names typed while it was still working: remember those voices now that the voice prints exist
+    names.forEach((n,k)=>{ if(userNamed[k]&&voiceprints[k]) api.store('saveVoice', n, voiceprints[k]); });
+    renderAll();
+    const known=recognised.filter(Boolean).length;
+    const who=sp==='off'||!segs.length?'':(labelsOn?' Found '+heard+' speakers'+(known?', recognised '+known+' by voice.':'.'):' Only one speaker was found, so lines are not labelled.');
+    const fixes=(m.loopsFixed?' Fixed '+m.loopsFixed+' repeated passage'+(m.loopsFixed>1?'s':'')+'.':'');
+    if(segs.length){
+      cur={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), title:baseName, created:Date.now(), duration:audioDur, filePath};
+      busy=false; await saveNow();
+    }
+    finish(segs.length?'Done in '+dur(m.elapsed)+' ('+fmt(audioDur)+' of audio).'+who+fixes:'No speech was found in this recording.');
   }
-  else if(m.type==='error'){ window.engine.cancel(); finish('Error: '+m.text,true); }
+  else if(m.type==='error'){ api.cancel(); finish('Error: '+m.text,true); }
 }
 
-$('toggle').onclick=()=>{ const p=out.classList.toggle('plain'); $('toggle').textContent=p?'Show timestamps':'Hide timestamps'; };
+$('toggle').onclick=()=>{ const p=out.classList.toggle('plain'); $('toggle').textContent=p?'Show timestamps':'Hide timestamps'; refreshFind(true); };
 $('copy').onclick=async()=>{
   const t=out.classList.contains('plain')?plainText():stampedText();
   try{ await navigator.clipboard.writeText(t); }
   catch{ const ta=document.createElement('textarea'); ta.value=t; document.body.append(ta); ta.select(); try{document.execCommand('copy');}catch{} ta.remove(); }
   $('copy').textContent='Copied'; setTimeout(()=>$('copy').textContent='Copy',1400);
 };
-async function save(name,data){
-  if(downloads){ try{ await downloads.save({filename:name,data}); return; }catch(e){} }
+function save(name,data){
   try{ const u=URL.createObjectURL(new Blob([data],{type:'text/plain;charset=utf-8'})); const a=document.createElement('a'); a.href=u; a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); }
   catch(e){ setStatus('The file was not saved. Use Copy instead.',true); }
 }
-$('txt').onclick=()=>save(baseName+'.txt', out.classList.contains('plain')?plainText():stampedText());
-$('srt').onclick=()=>save(baseName+'.srt', srtText());
+$('txt').onclick=()=>save(titleNow()+'.txt', out.classList.contains('plain')?plainText():stampedText());
+$('srt').onclick=()=>save(titleNow()+'.srt', srtText());
+$('docx').onclick=async()=>{
+  const stamped=!out.classList.contains('plain');
+  const data={ title:titleNow(), created:(cur&&cur.created)||Date.now(), duration:audioDur, stamped,
+    turns: stamped ? segs.filter(s=>s.text).map(s=>({name:spkOf(s)>=0?nameOf(spkOf(s)):'', start:s.start, text:clean(s.text)})) : turns().map(t=>({name:t.k>=0?nameOf(t.k):'', start:t.start, text:clean(t.text)})) };
+  try{ const f=await api.saveDocx(data); if(f) setStatus('Saved Word document: '+f); }
+  catch(e){ setStatus('Could not save the Word document: '+(e.message||e),true); }
+};
 
+refreshRecent(); refreshVoices();
 </script>
 </body>
 </html>
